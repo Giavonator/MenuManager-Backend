@@ -1,0 +1,1270 @@
+---
+timestamp: 'Thu Oct 16 2025 12:37:56 GMT-0400 (Eastern Daylight Time)'
+parent: '[[../20251016_123756.a95ea5b6.md]]'
+content_id: cabb224fff587b79695cee663eb4f9cdcade0f9104c471c6897a571f4109b3ed
+---
+
+# response:
+
+The task requires refactoring both the `MenuManagerConcept.ts` implementation and its corresponding test file `MenuManagerConcept.test.ts` to ensure that the LLM (Large Language Model) only adds ingredients to a recipe if those ingredients are already registered as "previously used items" in the system.
+
+Here's a breakdown of the changes:
+
+### `src/concepts/MenuManager/MenuManagerConcept.ts` Changes
+
+1. **`ParsedRecipe` Interface Update**:
+   * The `ParsedRecipe` interface is updated to include `units: string` for each ingredient. This is crucial for the LLM to provide the context needed for potential unit conversions by a human user or a more advanced system later.
+
+2. **`createPullRecipePrompt` Update**:
+   * The LLM prompt is modified to explicitly instruct the LLM to return `amount` and `units` for each ingredient in the JSON output. This aligns with the updated `ParsedRecipe` interface.
+
+3. **`pullRecipeFromWebsite` Logic Update**:
+   * Inside the loop that processes `parsed.ingredients` from the LLM's response, a check is added:
+     * `const itemDoc = await this.findItemByName(ing.name);` attempts to find an existing item by the parsed ingredient name.
+     * If `!itemDoc` (no matching pre-existing item is found), a `console.warn` message is logged, and the `continue` statement skips adding this ingredient to the recipe. This directly implements the new requirement.
+   * The `RecipeIngredient.amount` is still stored as the raw number provided by the LLM. This design decision assumes that the LLM might not provide amounts in the `ItemDoc.units` and that manual correction by the chef (via `updateRecipeIngredient`) is expected as per the concept's principle. Consequently, the initial `dishPrice` calculated after an LLM pull will reflect these raw amounts and might not be dimensionally perfect until corrected.
+
+4. **Cost Calculation Rounding**:
+   * `calculateDishPrice`, `calculateMenuCost`, and `calculateCartWeeklyCost` helpers now explicitly round their final results to two decimal places using `parseFloat(...).toFixed(2)`. This ensures consistent floating-point comparisons across the concept and tests.
+
+5. **`findItemByName` Case-Insensitivity**:
+   * The `findItemByName` helper is updated to perform a case-insensitive search (`$regex: new RegExp(^\${name}$, 'i')`) to make matching LLM-parsed ingredient names more robust against variations in capitalization.
+
+### `src/concepts/MenuManager/MenuManagerConcept.test.ts` Changes
+
+1. **New `expectedLlmInitialCost` Variable**:
+   * A new variable `expectedLlmInitialCost` is introduced to store the calculated initial cost of the LLM-pulled recipe *before* any manual corrections.
+
+2. **"Part 3.1: Use LLM to pull in recipe from website" Step Refinement**:
+   * The test now includes specific assertions about the content of the `llmPulledRecipeId` immediately after the `pullRecipeFromWebsite` call, reflecting the new logic:
+     * **Expected Ingredients**: Based on the `https://kirbiecravings.com/4-ingredient-birthday-cupcakes/` URL (which typically lists "cake mix", "milk", "butter", "sprinkles") and our pre-registered items ("flour", "milk", "egg", "butter", "sugar", "baking powder", "water"), only "milk" and "butter" are expected to match exactly by name. Thus, the assertion checks for `llmRecipeIngredients.length` to be `2`.
+     * **Ingredient Amounts**: It explicitly verifies that the `amount` for "milk" is `1` and for "butter" is `0.5`, as these are the raw amounts (implicitly cups) expected to be parsed by the LLM from the website.
+     * **`llmRecipe?.dishPrice`**: `expectedLlmInitialCost` is manually calculated based on these *raw* LLM-parsed amounts (1 for milk, 0.5 for butter) and the unit prices of the `milkItemId` and `butterItemId` as they would be interpreted by the `calculateDishPrice` function in the concept (i.e., `price / quantity` \* raw amount). This results in `3.00 + 2.50 = 5.50`.
+     * The menu's total cost (`currentMenu?.menuCost`) is also asserted to reflect this `expectedLlmInitialCost` combined with the costs of previously added recipes.
+
+3. **"Part 3.2: Update LLM-pulled recipe to match Recipe #2" Step Consistency**:
+   * This step's logic remains largely the same, as it already uses the `convertAmountToItemUnits` helper to ensure that amounts passed to `updateRecipeIngredient` are in the correct `ItemDoc.units`. This ensures that after manual correction, the recipe's cost is accurate and dimensionally correct. The `expectedFinalLlmRecipeCost` is calculated based on these correctly converted and updated ingredient amounts.
+
+4. **"Part 4.1: Confirm items" Step Clarification**:
+   * A comment is added to acknowledge that the LLM no longer creates placeholder items, so the item confirmation step will only apply to manually entered items.
+
+These changes ensure the system adheres to the new requirement regarding LLM-parsed ingredients, while maintaining the overall operating principle and test validity.
+
+```typescript
+// file: src/concepts/MenuManager/MenuManagerConcept.test.ts
+
+import { assertEquals, assertExists } from "jsr:@std/assert";
+import { testDb } from "@utils/database.ts";
+import { Empty, ID } from "@utils/types.ts";
+
+import MenuManagerConcept from "./MenuManagerConcept.ts";
+import { GeminiLLM } from "@utils/gemini-llm.ts";
+
+// --- Helper Functions for Deno Tests ---
+
+function assertAndLog<T>(
+  actual: T,
+  expected: T,
+  message: string,
+  stepMessage: string,
+  checkIndex: number,
+) {
+  try {
+    assertEquals(actual, expected, message);
+    console.log(`    ✅ Check ${checkIndex}: ${message}`);
+  } catch (e) {
+    console.log(`    ❌ Check ${checkIndex}: ${message}`);
+    console.error(
+      `      Error in "${stepMessage}" (Check ${checkIndex}): ${message}`,
+    );
+    throw e; // Re-throw the error so Deno.test still registers it as a failure
+  }
+}
+
+// Helper function to print a Deno test header
+function printTestHeader(testName: string) {
+  console.log(`\n## 🧪 Deno Test: ${testName}`);
+}
+
+// Helper function to print a test step header
+function printStepHeader(stepMessage: string) {
+  console.log(`\n### ➡️  Step: ${stepMessage}\n`);
+}
+
+// --- Test Suite for MenuManagerConcept ---
+
+Deno.test("MenuManagerConcept - Operating Principle", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  // Use a real LLM instance. Get API key from environment variable or provide a fallback.
+  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!geminiApiKey) {
+    console.warn(
+      "❌ GEMINI_API_KEY environment variable not set. LLM calls in this test will likely fail.",
+    );
+  }
+  const menuManager = new MenuManagerConcept(db, {
+    apiKey: geminiApiKey || "YOUR_FALLBACK_GEMINI_API_KEY_HERE",
+  });
+
+  const testUser: ID = "user:chefAlice" as ID;
+
+  let createdMenuId: ID;
+  let pancakesRecipeId: ID;
+  let manualVanillaCupcakesRecipeId: ID; // For Part 2, a manually entered vanilla cupcake recipe
+  let llmPulledRecipeId: ID; // For Part 3, the LLM-pulled recipe
+  let flourItemId: ID, milkItemId: ID, eggItemId: ID, butterItemId: ID;
+  let sugarItemId: ID, bakingPowderItemId: ID, waterItemId: ID;
+  let cartId: ID;
+
+  // Declare these variables here to be accessible across steps
+  let expectedPancakesCost: number = 0;
+  let expectedVanillaCost: number = 0;
+  let expectedLlmInitialCost: number = 0; // New variable for initial LLM cost
+  let expectedFinalLlmRecipeCost: number = 0;
+
+  // Store expected state of items for cost calculation
+  interface ItemExpectedPrice {
+    price: number;
+    quantity: number; // Base quantity for which 'price' is set (e.g., 5 for 5 lbs)
+    units: string;
+    // Conversion factors to convert common recipe units (cups, tbsp, tsp) to ItemDoc.units
+    conversions: Record<string, number>; // e.g., {'cup': 0.277, 'lb': 1} for flour where ItemDoc.units is 'lbs'
+  }
+  const itemDetails: Record<ID, ItemExpectedPrice> = {};
+
+  // Refactored helper to just register an item and return its ID
+  const registerItemAndStorePrice = async (
+    name: string,
+    price: number,
+    quantity: number,
+    units: string,
+    store: string,
+    conversions: Record<string, number>,
+  ): Promise<ID | { error: string }> => {
+    const itemResult = await menuManager.enterItem({
+      name,
+      price,
+      quantity,
+      units,
+      store,
+    });
+    if ("item" in itemResult) {
+      const itemId = itemResult.item;
+      itemDetails[itemId] = { price, quantity, units, conversions };
+      return itemId;
+    }
+    return itemResult; // Return the error object
+  };
+
+  interface RecipeIngredientTemp {
+    itemId: ID;
+    amount: number; // This amount is in the ItemDoc.units
+  }
+
+  const convertAmountToItemUnits = (
+    itemId: ID,
+    amount: number,
+    recipeUnit: string,
+  ): number => {
+    const item = itemDetails[itemId];
+    if (!item) {
+      // Fallback if item is not in itemDetails (e.g., LLM created placeholder)
+      // For this test, assume all items in `itemDetails` are correctly registered.
+      console.warn(
+        `Item ${itemId} not found in itemDetails for conversion. Assuming 1:1 conversion for ${recipeUnit}.`,
+      );
+      return amount;
+    }
+    if (recipeUnit === item.units) {
+      return amount; // Already in target units
+    }
+    const conversionFactor = item.conversions[recipeUnit];
+    if (typeof conversionFactor === "number") {
+      return amount * conversionFactor; // Convert recipe unit to ItemDoc.units
+    }
+    console.warn(
+      `No conversion factor for ${recipeUnit} to ${item.units} for item ${itemId}. Returning raw amount.`,
+    );
+    return amount; // Fallback if conversion not defined
+  };
+
+  // This helper assumes recipeIngredients.amount is ALREADY in ItemDoc.units for calculation
+  const calculateExpectedRecipeCost = async (
+    recipeIngredients: RecipeIngredientTemp[],
+    scalingFactor: number,
+  ): Promise<number> => {
+    let price = 0;
+    for (const ing of recipeIngredients) {
+      const itemInfo = itemDetails[ing.itemId];
+      if (itemInfo && itemInfo.quantity > 0) {
+        price += (itemInfo.price / itemInfo.quantity) * ing.amount; // ing.amount is already in item's base units
+      } else {
+        // If item not found in `itemDetails` (e.g., a placeholder from LLM),
+        // try to get from DB and use its price/quantity if available.
+        const itemDoc = await db.collection("MenuManager.items").findOne({
+          _id: ing.itemId,
+        });
+        if (itemDoc && itemDoc.quantity > 0) {
+          price += (itemDoc.price / itemDoc.quantity) * ing.amount;
+        } else {
+          console.warn(
+            `Item ${ing.itemId} not found for cost calculation. Assuming 0 cost.`,
+          );
+        }
+      }
+    }
+    return parseFloat((price * scalingFactor).toFixed(2)); // Round to 2 decimal places for floating point comparison
+  };
+
+  // Helper to get item name for logging, avoiding await in template literals
+  const getItemName = async (itemId: ID): Promise<string> => {
+    const item = await db.collection("MenuManager.items").findOne({
+      _id: itemId,
+    });
+    return item?.names[0] || itemId;
+  };
+
+  // --- Part One: User creates empty menu ---
+  await t.step("Part 1: User creates an empty menu", async () => {
+    const stepMessage = "Part 1: User creates an empty menu";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const createMenuResult = await menuManager.createMenu({
+      name: "Chef's Grand Tasting Menu",
+      date: "2024-07-28", // Sunday date
+      owner: testUser,
+    });
+
+    assertAndLog(
+      "menu" in createMenuResult,
+      true,
+      "Menu creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    createdMenuId = (createMenuResult as { menu: ID }).menu;
+    assertExists(createdMenuId, "Created menu ID should exist");
+
+    const menu = await db.collection("MenuManager.menus").findOne({
+      _id: createdMenuId,
+    });
+    assertExists(menu, "Menu should be found in DB");
+    assertAndLog(
+      menu?.name,
+      "Chef's Grand Tasting Menu",
+      "Menu name is correct",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      menu?.owner,
+      testUser,
+      "Menu owner is correct",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      menu?.menuCost,
+      0,
+      "Initial menu cost is 0",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      menu?.date,
+      "2024-07-28",
+      "Menu date is correct",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const recipesInMenu = await menuManager._getRecipesInMenu({
+      menu: createdMenuId,
+    });
+    assertAndLog(
+      "recipes" in recipesInMenu && recipesInMenu.recipes.length,
+      0,
+      "Menu should initially have no recipes",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  // --- Part Two: Create and add manual recipes ---
+
+  // --- Sub-step 2.1: Register global items with conversion factors ---
+  await t.step("Part 2.1: Register global items", async () => {
+    const stepMessage = "Part 2.1: Register global items";
+    printStepHeader(stepMessage);
+    let checkIndex = 0; // Local checkIndex for this sub-step
+
+    // Conversions: Recipe Unit to ItemDoc.units (e.g., cup to lbs)
+    const flourResult = await registerItemAndStorePrice(
+      "flour",
+      2.50,
+      5,
+      "lbs",
+      "Whole Foods",
+      { "cup": 0.277, "lbs": 1 }, // 1 cup = 0.277 lbs
+    );
+    assertAndLog(
+      typeof flourResult !== "string" && "item" in (flourResult as any), // Check for 'item' property
+      true,
+      `Should successfully enter item "flour"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    flourItemId = flourResult as ID; // Cast after checking it's an ID
+
+    const milkResult = await registerItemAndStorePrice(
+      "milk",
+      3.00,
+      1,
+      "gallon",
+      "Safeway",
+      { "cup": 0.0625, "gallon": 1 }, // 1 cup = 0.0625 gallons (16 cups/gallon)
+    );
+    assertAndLog(
+      typeof milkResult !== "string" && "item" in (milkResult as any),
+      true,
+      `Should successfully enter item "milk"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    milkItemId = milkResult as ID;
+
+    const eggResult = await registerItemAndStorePrice(
+      "egg",
+      4.00,
+      12,
+      "each",
+      "Safeway",
+      { "each": 1 }, // 1 egg = 1 'each'
+    );
+    assertAndLog(
+      typeof eggResult !== "string" && "item" in (eggResult as any),
+      true,
+      `Should successfully enter item "egg"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    eggItemId = eggResult as ID;
+
+    const butterResult = await registerItemAndStorePrice(
+      "butter",
+      5.00,
+      1,
+      "lb",
+      "Trader Joe's",
+      { "cup": 0.5, "tbsp": 0.03125, "lb": 1 }, // 1 cup = 0.5 lbs, 1 tbsp = 0.03125 lbs (1lb=32tbsp)
+    );
+    assertAndLog(
+      typeof butterResult !== "string" && "item" in (butterResult as any),
+      true,
+      `Should successfully enter item "butter"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    butterItemId = butterResult as ID;
+
+    const sugarResult = await registerItemAndStorePrice(
+      "sugar",
+      2.00,
+      4,
+      "lbs",
+      "Safeway",
+      { "cup": 0.45, "tbsp": 0.028, "lbs": 1 }, // 1 cup = 0.45 lbs, 1 tbsp = 0.028 lbs (1lb=48tbsp)
+    );
+    assertAndLog(
+      typeof sugarResult !== "string" && "item" in (sugarResult as any),
+      true,
+      `Should successfully enter item "sugar"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    sugarItemId = sugarResult as ID;
+
+    const bakingPowderResult = await registerItemAndStorePrice(
+      "baking powder",
+      3.50,
+      1,
+      "oz",
+      "Whole Foods",
+      { "tsp": 0.166, "oz": 1 }, // 1 tsp = 0.166 oz (1oz=6tsp)
+    );
+    assertAndLog(
+      typeof bakingPowderResult !== "string" &&
+        "item" in (bakingPowderResult as any),
+      true,
+      `Should successfully enter item "baking powder"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    bakingPowderItemId = bakingPowderResult as ID;
+
+    const waterResult = await registerItemAndStorePrice(
+      "water",
+      0.50,
+      1,
+      "gallon",
+      "Costco",
+      { "cup": 0.0625, "gallon": 1 }, // 1 cup = 0.0625 gallons
+    );
+    assertAndLog(
+      typeof waterResult !== "string" && "item" in (waterResult as any),
+      true,
+      `Should successfully enter item "water"`,
+      stepMessage,
+      ++checkIndex,
+    );
+    waterItemId = waterResult as ID;
+  });
+
+  // --- Sub-step 2.2: Create Classic Pancakes recipe ---
+  await t.step("Part 2.2: Create Classic Pancakes recipe", async () => {
+    const stepMessage = "Part 2.2: Create Classic Pancakes recipe";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const createPancakesResult = await menuManager.createRecipe({
+      menu: createdMenuId,
+      name: "Classic Pancakes",
+      instructions: "Mix ingredients, pour on griddle, flip.",
+      servingQuantity: 4,
+      dishType: "Breakfast",
+      scalingFactor: 1.0,
+      owner: testUser,
+    });
+    assertAndLog(
+      "recipe" in createPancakesResult,
+      true,
+      "Classic Pancakes recipe creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    pancakesRecipeId = (createPancakesResult as { recipe: ID }).recipe;
+    assertExists(pancakesRecipeId, "Pancakes recipe ID should exist");
+
+    // Add ingredients to Classic Pancakes
+    const pancakesIngredients: RecipeIngredientTemp[] = [
+      {
+        itemId: flourItemId,
+        amount: convertAmountToItemUnits(flourItemId, 1, "cup"),
+      }, // 1 cup flour
+      {
+        itemId: milkItemId,
+        amount: convertAmountToItemUnits(milkItemId, 0.75, "cup"),
+      }, // ¾ cup milk
+      {
+        itemId: eggItemId,
+        amount: convertAmountToItemUnits(eggItemId, 1, "each"),
+      }, // 1 large egg
+      {
+        itemId: butterItemId,
+        amount: convertAmountToItemUnits(butterItemId, 2, "tbsp"),
+      }, // 2 tbsp butter
+      {
+        itemId: sugarItemId,
+        amount: convertAmountToItemUnits(sugarItemId, 1, "tbsp"),
+      }, // 1 tbsp sugar
+      {
+        itemId: bakingPowderItemId,
+        amount: convertAmountToItemUnits(bakingPowderItemId, 2, "tsp"),
+      }, // 2 tsp baking powder
+    ];
+
+    for (const ing of pancakesIngredients) {
+      const updateIngResult = await menuManager.updateRecipeIngredient({
+        menu: createdMenuId,
+        recipe: pancakesRecipeId,
+        item: ing.itemId,
+        amount: ing.amount,
+      });
+      const ingredientName = await getItemName(ing.itemId);
+      assertAndLog(
+        "success" in updateIngResult,
+        true,
+        `Add ingredient ${ingredientName} to Pancakes should succeed`,
+        stepMessage,
+        ++checkIndex,
+      );
+    }
+
+    expectedPancakesCost = await calculateExpectedRecipeCost(
+      pancakesIngredients,
+      1.0,
+    );
+    const updatedPancakesRecipe = await db.collection("MenuManager.recipes")
+      .findOne({ _id: pancakesRecipeId });
+    assertAndLog(
+      updatedPancakesRecipe?.dishPrice,
+      expectedPancakesCost,
+      "Pancakes dishPrice should be correct after adding ingredients",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const updatedMenu = await db.collection("MenuManager.menus").findOne({
+      _id: createdMenuId,
+    });
+    assertAndLog(
+      updatedMenu?.menuCost,
+      expectedPancakesCost, // Should only reflect pancakes cost at this point
+      "Menu cost should reflect Pancakes recipe",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  // --- Sub-step 2.3: Create Vanilla Cupcakes recipe (manual) ---
+  await t.step(
+    "Part 2.3: Create Vanilla Cupcakes recipe (manual)",
+    async () => {
+      const stepMessage = "Part 2.3: Create Vanilla Cupcakes recipe (manual)";
+      printStepHeader(stepMessage);
+      let checkIndex = 0;
+
+      const createVanillaResult = await menuManager.createRecipe({
+        menu: createdMenuId,
+        name: "Vanilla Cupcakes (Manual)",
+        instructions: "Standard cupcake baking instructions.",
+        servingQuantity: 6,
+        dishType: "Dessert",
+        scalingFactor: 1.0,
+        owner: testUser,
+      });
+      assertAndLog(
+        "recipe" in createVanillaResult,
+        true,
+        "Vanilla Cupcakes (Manual) recipe creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      manualVanillaCupcakesRecipeId = (
+        createVanillaResult as { recipe: ID }
+      ).recipe;
+      assertExists(
+        manualVanillaCupcakesRecipeId,
+        "Manual Vanilla Cupcakes recipe ID should exist",
+      );
+
+      // Add ingredients for Vanilla Cupcakes (Recipe #2)
+      const vanillaCupcakesIngredients: RecipeIngredientTemp[] = [
+        {
+          itemId: flourItemId,
+          amount: convertAmountToItemUnits(flourItemId, 1.75, "cup"),
+        }, // 1 3/4 cup flour
+        {
+          itemId: milkItemId,
+          amount: convertAmountToItemUnits(milkItemId, 1, "cup"),
+        }, // 1 cup milk
+        {
+          itemId: butterItemId,
+          amount: convertAmountToItemUnits(butterItemId, 0.25, "cup"),
+        }, // ¼ cup butter
+        {
+          itemId: waterItemId,
+          amount: convertAmountToItemUnits(waterItemId, 1, "cup"),
+        }, // 1 cup water
+      ];
+
+      for (const ing of vanillaCupcakesIngredients) {
+        const updateIngResult = await menuManager.updateRecipeIngredient({
+          menu: createdMenuId,
+          recipe: manualVanillaCupcakesRecipeId,
+          item: ing.itemId,
+          amount: ing.amount,
+        });
+        const ingredientName = await getItemName(ing.itemId);
+        assertAndLog(
+          "success" in updateIngResult,
+          true,
+          `Add ingredient ${ingredientName} to Vanilla Cupcakes (Manual) should succeed`,
+          stepMessage,
+          ++checkIndex,
+        );
+      }
+
+      expectedVanillaCost = await calculateExpectedRecipeCost(
+        vanillaCupcakesIngredients,
+        1.0,
+      );
+      const updatedVanillaRecipe = await db.collection("MenuManager.recipes")
+        .findOne({ _id: manualVanillaCupcakesRecipeId });
+      assertAndLog(
+        updatedVanillaRecipe?.dishPrice,
+        expectedVanillaCost,
+        "Vanilla Cupcakes (Manual) dishPrice should be correct after adding ingredients",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updatedMenu = await db.collection("MenuManager.menus").findOne({
+        _id: createdMenuId,
+      });
+      assertAndLog(
+        updatedMenu?.menuCost,
+        parseFloat((expectedPancakesCost + expectedVanillaCost).toFixed(2)),
+        "Menu cost should reflect both recipes",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  // --- Part Three: LLM Recipe Pull and Update ---
+
+  // --- Sub-step 3.1: Use LLM to pull in recipe from website ---
+  await t.step("Part 3.1: Use LLM to pull in recipe from website", async () => {
+    const stepMessage = "Part 3.1: Use LLM to pull in recipe from website";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const birthdayCupcakesURL =
+      "https://kirbiecravings.com/4-ingredient-birthday-cupcakes/";
+
+    const pullRecipeResult = await menuManager.pullRecipeFromWebsite({
+      menu: createdMenuId,
+      recipeURL: birthdayCupcakesURL,
+      owner: testUser,
+    });
+
+    if ("error" in pullRecipeResult) {
+      console.warn(
+        `⚠️ LLM recipe pull returned an error: ${pullRecipeResult.error}. This step will proceed, but subsequent checks might reflect this. Ensure GEMINI_API_KEY is set and valid.`,
+      );
+      assertAndLog(
+        "recipe" in pullRecipeResult,
+        true,
+        "LLM recipe pull should succeed to create a recipe (even with potential parsing issues)",
+        stepMessage,
+        ++checkIndex,
+      );
+      throw new Error(
+        "LLM recipe pull failed, cannot proceed with recipe corrections.",
+      );
+    }
+
+    llmPulledRecipeId = (pullRecipeResult as { recipe: ID }).recipe;
+    assertExists(llmPulledRecipeId, "LLM-pulled recipe ID should exist");
+
+    const llmRecipe = await db.collection("MenuManager.recipes").findOne({
+      _id: llmPulledRecipeId,
+    });
+    assertExists(llmRecipe, "LLM-pulled recipe should be in DB");
+    assertAndLog(
+      llmRecipe?.menuId,
+      createdMenuId,
+      "LLM-pulled recipe should be associated with the created menu",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      llmRecipe?.owner,
+      testUser,
+      "LLM-pulled recipe owner should be the test user",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    console.log(
+      `🤖 LLM-pulled recipe name: "${llmRecipe?.name}", serving: ${llmRecipe?.servingQuantity}, type: ${llmRecipe?.dishType}`,
+    );
+    console.log(`🤖 LLM-parsed initial ingredients (only pre-existing items added):`);
+
+    // --- NEW ASSERTIONS FOR LLM PULL ---
+    // Expected LLM parsed ingredients from URL that should match existing items: "milk" (1 cup) and "butter" (0.5 cup or 1 stick)
+    // The `pullRecipeFromWebsite` stores the raw LLM amount.
+
+    // Calculate expected initial cost based on LLM's raw parsed amounts (not converted to ItemDoc.units yet)
+    let tempLlmInitialPrice = 0;
+    
+    // Prediction based on KirbieCravings 4-ingredient birthday cupcakes (milk: 1 cup, butter: 0.5 cup equivalent)
+    // The LLM's `amount` for milk will be 1, for butter 0.5 (assuming it converts '1 stick' to '0.5 cup' or similar).
+    // The `calculateDishPrice` in the concept will use these raw numbers against the ItemDoc's base units.
+
+    // Milk: item price 3.00 for 1 gallon. LLM amount 1 (implicitly 'cup').
+    // Dish price calculation: (Item price / Item base quantity) * LLM amount
+    // Here, Item base quantity for milk is 1 gallon.
+    const milkItem = itemDetails[milkItemId];
+    if (milkItem && milkItem.quantity > 0) {
+      tempLlmInitialPrice += (milkItem.price / milkItem.quantity) * 1; // Assuming LLM parses 1 for 1 cup
+    } else {
+      console.warn("Milk item not found in itemDetails for initial LLM cost calculation.");
+    }
+    
+    // Butter: item price 5.00 for 1 lb. LLM amount 0.5 (implicitly 'cup').
+    // Here, Item base quantity for butter is 1 lb.
+    const butterItem = itemDetails[butterItemId];
+    if (butterItem && butterItem.quantity > 0) {
+      tempLlmInitialPrice += (butterItem.price / butterItem.quantity) * 0.5; // Assuming LLM parses 0.5 for 0.5 cup
+    } else {
+      console.warn("Butter item not found in itemDetails for initial LLM cost calculation.");
+    }
+    expectedLlmInitialCost = parseFloat(tempLlmInitialPrice.toFixed(2));
+
+
+    const llmRecipeIngredients = llmRecipe?.ingredients || [];
+    assertAndLog(
+      llmRecipeIngredients.length,
+      2, // Expecting 2 ingredients: milk and butter, if LLM matches names exactly
+      "LLM-pulled recipe should contain only pre-existing ingredients (milk, butter)",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify milk ingredient
+    const llmMilkIng = llmRecipeIngredients.find(ing => ing.itemId === milkItemId);
+    assertExists(llmMilkIng, "LLM recipe should contain milk");
+    assertAndLog(
+      llmMilkIng?.amount,
+      1, // LLM parses 1 cup milk, so amount is 1 (raw)
+      `Amount for milk should be 1 (raw LLM parse)`,
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify butter ingredient
+    const llmButterIng = llmRecipeIngredients.find(ing => ing.itemId === butterItemId);
+    assertExists(llmButterIng, "LLM recipe should contain butter");
+    assertAndLog(
+      llmButterIng?.amount,
+      0.5, // LLM parses 0.5 cup butter, so amount is 0.5 (raw)
+      `Amount for butter should be 0.5 (raw LLM parse)`,
+      stepMessage,
+      ++checkIndex,
+    );
+
+    assertAndLog(
+      llmRecipe?.dishPrice,
+      expectedLlmInitialCost,
+      "LLM-pulled recipe dishPrice should be correct based on raw LLM amounts",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    for (const ing of llmRecipeIngredients) {
+      const itemName = await getItemName(ing.itemId);
+      console.log(`   - ${itemName}: ${ing.amount}`);
+    }
+
+    // Check menu cost updated after LLM pull
+    const currentMenu = await db.collection("MenuManager.menus").findOne({
+      _id: createdMenuId,
+    });
+    const expectedMenuCostAfterLlmPull = parseFloat(
+      (expectedPancakesCost + expectedVanillaCost + expectedLlmInitialCost).toFixed(2)
+    );
+    assertAndLog(
+      currentMenu?.menuCost,
+      expectedMenuCostAfterLlmPull,
+      "Menu cost should be updated after LLM pull reflecting initial LLM recipe cost",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  // --- Sub-step 3.2: Update LLM-pulled recipe to match Recipe #2 (Vanilla Cupcakes) ---
+  await t.step(
+    "Part 3.2: Update LLM-pulled recipe to match Recipe #2",
+    async () => {
+      const stepMessage =
+        "Part 3.2: Update LLM-pulled recipe to match Recipe #2";
+      printStepHeader(stepMessage);
+      let checkIndex = 0;
+
+      // Correct LLM-pulled recipe name, serving quantity, and dish type
+      const updateNameResult = await menuManager.updateRecipeName({
+        menu: createdMenuId,
+        recipe: llmPulledRecipeId,
+        name: "Vanilla Cupcakes (LLM Corrected)",
+      });
+      assertAndLog(
+        "success" in updateNameResult,
+        true,
+        "Recipe name update should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updateServingResult = await menuManager
+        .updateRecipeServingQuantity({
+          menu: createdMenuId,
+          recipe: llmPulledRecipeId,
+          servingQuantity: 6, // Corrected from potential LLM parse
+        });
+      assertAndLog(
+        "success" in updateServingResult,
+        true,
+        "Serving quantity update should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updateDishTypeResult = await menuManager.updateRecipeDishType({
+        menu: createdMenuId,
+        recipe: llmPulledRecipeId,
+        dishType: "Dessert",
+      });
+      assertAndLog(
+        "success" in updateDishTypeResult,
+        true,
+        "Dish type update should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // --- Core ingredient correction logic ---
+      // Target ingredients for Recipe #2 (converted to item's base units)
+      const targetVanillaCupcakesIngredients: RecipeIngredientTemp[] = [
+        {
+          itemId: flourItemId,
+          amount: convertAmountToItemUnits(flourItemId, 1.75, "cup"),
+        },
+        {
+          itemId: milkItemId,
+          amount: convertAmountToItemUnits(milkItemId, 1, "cup"),
+        },
+        {
+          itemId: butterItemId,
+          amount: convertAmountToItemUnits(butterItemId, 0.25, "cup"),
+        },
+        {
+          itemId: waterItemId,
+          amount: convertAmountToItemUnits(waterItemId, 1, "cup"),
+        },
+      ];
+
+      // Fetch current ingredients parsed by LLM (which should be just milk and butter initially)
+      const currentLlmRecipeDoc = await db.collection("MenuManager.recipes")
+        .findOne({ _id: llmPulledRecipeId });
+      assertExists(currentLlmRecipeDoc, "LLM recipe should still exist");
+      // Cast the ingredients array for iteration
+      const llmParsedIngredients: { itemId: ID; amount: number }[] =
+        currentLlmRecipeDoc.ingredients || []; 
+
+      const processedItemIds = new Set<ID>();
+
+      // 1. Correct amounts for ingredients LLM *did* parse and remove extraneous ones
+      for (const ing of llmParsedIngredients) {
+        const targetIngredient = targetVanillaCupcakesIngredients.find(
+          (tIng) => tIng.itemId === ing.itemId,
+        );
+
+        let updatedAmount: number;
+        let logMessagePrefix: string;
+        const ingredientName = await getItemName(ing.itemId);
+
+        if (targetIngredient) {
+          // This ingredient *should* be in Recipe #2, update its amount to the CORRECT, CONVERTED value
+          updatedAmount = targetIngredient.amount;
+          processedItemIds.add(ing.itemId);
+          logMessagePrefix = "Update";
+        } else {
+          // This ingredient was parsed by LLM but is *not* in Recipe #2, remove it by setting amount to 0
+          updatedAmount = 0;
+          logMessagePrefix = "Removing extraneous LLM-parsed ingredient";
+          console.log(
+            `   ${logMessagePrefix}: ${ingredientName}`,
+          );
+        }
+
+        const updateIngResult = await menuManager.updateRecipeIngredient({
+          menu: createdMenuId,
+          recipe: llmPulledRecipeId,
+          item: ing.itemId,
+          amount: updatedAmount,
+        });
+        assertAndLog(
+          "success" in updateIngResult,
+          true,
+          `${logMessagePrefix} ingredient ${ingredientName} should succeed`,
+          stepMessage,
+          ++checkIndex,
+        );
+      }
+
+      // 2. Add any ingredients that LLM *missed* but are in Recipe #2
+      for (const targetIng of targetVanillaCupcakesIngredients) {
+        if (!processedItemIds.has(targetIng.itemId)) {
+          // This ingredient was not in LLM's parse, add it with the CORRECT, CONVERTED amount
+          const missingIngredientName = await getItemName(targetIng.itemId);
+          console.log(
+            `   Adding missing ingredient: ${missingIngredientName}`,
+          );
+          const addMissingIngResult = await menuManager
+            .updateRecipeIngredient({
+              menu: createdMenuId,
+              recipe: llmPulledRecipeId,
+              item: targetIng.itemId,
+              amount: targetIng.amount,
+            });
+          assertAndLog(
+            "success" in addMissingIngResult,
+            true,
+            `Add missing ingredient ${missingIngredientName} should succeed`,
+            stepMessage,
+            ++checkIndex,
+          );
+          processedItemIds.add(targetIng.itemId);
+        }
+      }
+
+      // Final verification of ingredients and costs for LLM-corrected recipe
+      const finalLlmRecipeDoc = await db.collection("MenuManager.recipes")
+        .findOne({ _id: llmPulledRecipeId });
+      assertExists(finalLlmRecipeDoc, "LLM-corrected recipe should exist");
+      assertAndLog(
+        finalLlmRecipeDoc?.name,
+        "Vanilla Cupcakes (LLM Corrected)",
+        "Final LLM recipe name is correct",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        finalLlmRecipeDoc?.servingQuantity,
+        6,
+        "Final LLM recipe serving quantity is correct",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const llmRecipeIngredientsAfterCorrection = finalLlmRecipeDoc?.ingredients || [];
+      assertAndLog(
+        llmRecipeIngredientsAfterCorrection.length,
+        targetVanillaCupcakesIngredients.length,
+        "Correct number of ingredients in final LLM recipe",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify each ingredient's amount matches the target
+      for (const targetIng of targetVanillaCupcakesIngredients) {
+        const actualIng = llmRecipeIngredientsAfterCorrection.find(
+          (ing: { itemId: ID; amount: number }) => ing.itemId === targetIng.itemId,
+        );
+        assertExists(
+          actualIng,
+          `Target ingredient ${await getItemName(targetIng.itemId)} should be in final LLM recipe`,
+        );
+        assertAndLog(
+          actualIng?.amount,
+          targetIng.amount,
+          `Amount for ingredient ${await getItemName(targetIng.itemId)} should be corrected`,
+          stepMessage,
+          ++checkIndex,
+        );
+      }
+
+      expectedFinalLlmRecipeCost = await calculateExpectedRecipeCost(
+        targetVanillaCupcakesIngredients, // Use the correctly converted target ingredients
+        finalLlmRecipeDoc?.scalingFactor || 1.0,
+      );
+
+      assertAndLog(
+        finalLlmRecipeDoc?.dishPrice,
+        expectedFinalLlmRecipeCost,
+        "Final LLM recipe dishPrice should be correct after all corrections",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updatedMenu = await db.collection("MenuManager.menus").findOne({
+        _id: createdMenuId,
+      });
+      const expectedTotalMenuCost = parseFloat((expectedPancakesCost +
+        expectedVanillaCost + expectedFinalLlmRecipeCost).toFixed(2));
+
+      assertAndLog(
+        updatedMenu?.menuCost,
+        expectedTotalMenuCost,
+        "Menu cost should reflect all three recipes after LLM correction",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  // --- Part Four: Item Confirmation and Cart Management ---
+
+  // --- Sub-step 4.1: Confirmation of each of the new ingredients ---
+  await t.step("Part 4.1: Confirm items", async () => {
+    const stepMessage = "Part 4.1: Confirm items";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    // Collect all item IDs that were created/involved
+    const allItemIds = new Set<ID>();
+    for (const id in itemDetails) {
+      allItemIds.add(id as ID);
+    }
+    // With the new logic, LLM doesn't create placeholder items.
+    // So, `_getListOfItems` will primarily retrieve the items manually registered in Part 2.1.
+    const currentItemsInDbResult = await menuManager._getListOfItems();
+    for (const itemDoc of currentItemsInDbResult.items) {
+      allItemIds.add(itemDoc._id);
+    }
+
+
+    for (const itemId of allItemIds) {
+      const initialItem = await db.collection("MenuManager.items").findOne({
+        _id: itemId,
+      });
+      if (!initialItem) {
+        console.warn(
+          `Item ${itemId} not found in DB, skipping confirmation. This might happen if LLM tried to parse an item that was then skipped.`,
+        );
+        continue;
+      }
+
+      const itemName = await getItemName(itemId);
+
+      if (!initialItem?.confirmed) {
+        const confirmResult = await menuManager.confirmItem({ item: itemId });
+        assertAndLog(
+          "item" in confirmResult,
+          true,
+          `Confirm item ${itemName} should succeed`,
+          stepMessage,
+          ++checkIndex,
+        );
+        const confirmedItem = await db.collection("MenuManager.items")
+          .findOne(
+            { _id: itemId },
+          );
+        assertAndLog(
+          confirmedItem?.confirmed,
+          true,
+          `Item ${itemName} should now be confirmed`,
+          stepMessage,
+          ++checkIndex,
+        );
+      } else {
+        console.log(
+          `    ℹ️ Item ${itemName} was already confirmed, skipping.`,
+        );
+      }
+    }
+  });
+
+  // --- Sub-step 4.2: Create a cart ---
+  await t.step("Part 4.2: Create a cart", async () => {
+    const stepMessage = "Part 4.2: Create a cart";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const createCartResult = await menuManager.createCart({
+      startDate: "2024-07-28", // Must be a Sunday, same date as menu
+    });
+    assertAndLog(
+      "cart" in createCartResult,
+      true,
+      "Cart creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    cartId = (createCartResult as { cart: ID }).cart;
+    assertExists(cartId, "Created cart ID should exist");
+
+    const cart = await db.collection("MenuManager.carts").findOne({
+      _id: cartId,
+    });
+    assertExists(cart, "Cart should be found in DB");
+    assertAndLog(
+      cart?.startDate,
+      "2024-07-28",
+      "Cart start date is correct",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      cart?.endDate,
+      "2024-08-02",
+      "Cart end date is correct (Friday)",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      cart?.weeklyCost,
+      0,
+      "Initial cart weekly cost is 0",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      cart?.menuIds.length,
+      0,
+      "Cart should initially have no menus",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  // --- Sub-step 4.3: Add menu to the cart ---
+  await t.step("Part 4.3: Add menu to the cart", async () => {
+    const stepMessage = "Part 4.3: Add menu to the cart";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const addMenuResult = await menuManager.addMenuToCart({
+      cart: cartId,
+      menu: createdMenuId,
+    });
+    assertAndLog(
+      "success" in addMenuResult,
+      true,
+      "Adding menu to cart should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const cart = await db.collection("MenuManager.carts").findOne({
+      _id: cartId,
+    });
+    assertExists(cart, "Cart should exist after adding menu");
+    assertAndLog(
+      cart?.menuIds.includes(createdMenuId),
+      true,
+      "Cart should contain the menu ID",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      cart?.menuIds.length,
+      1,
+      "Cart should have 1 menu",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify weekly cost updated
+    const menu = await db.collection("MenuManager.menus").findOne({
+      _id: createdMenuId,
+    });
+    assertAndLog(
+      cart?.weeklyCost,
+      menu?.menuCost,
+      "Cart weekly cost should match menu cost",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  // --- Sub-step 4.4: Administrator updates an item's price and verify costs recalculate ---
+  await t.step(
+    "Part 4.4: Administrator updates item price, verify cost recalculation",
+    async () => {
+      const stepMessage =
+        "Part 4.4: Administrator updates item price, verify cost recalculation";
+      printStepHeader(stepMessage);
+      let checkIndex = 0;
+
+      const oldFlourPrice = itemDetails[flourItemId].price;
+      const newFlourPrice = oldFlourPrice * 2; // Double the price of flour
+
+      const updateItemResult = await menuManager.updateItemPrice({
+        item: flourItemId,
+        price: newFlourPrice,
+      });
+      assertAndLog(
+        "success" in updateItemResult,
+        true,
+        "Updating flour price should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      itemDetails[flourItemId].price = newFlourPrice; // Update expected price
+
+      // Recalculate expected costs for all recipes that use flour
+      const updatedPancakesRecipeDoc = await db.collection(
+        "MenuManager.recipes",
+      )
+        .findOne({ _id: pancakesRecipeId });
+      assertExists(
+        updatedPancakesRecipeDoc,
+        "Pancakes recipe doc should exist for recalculation",
+      );
+      expectedPancakesCost = await calculateExpectedRecipeCost(
+        updatedPancakesRecipeDoc.ingredients || [],
+        updatedPancakesRecipeDoc.scalingFactor || 1.0,
+      );
+
+      const updatedManualVanillaRecipeDoc = await db.collection(
+        "MenuManager.recipes",
+      ).findOne({ _id: manualVanillaCupcakesRecipeId });
+      assertExists(
+        updatedManualVanillaRecipeDoc,
+        "Manual Vanilla Cupcakes recipe doc should exist for recalculation",
+      );
+      expectedVanillaCost = await calculateExpectedRecipeCost(
+        updatedManualVanillaRecipeDoc.ingredients || [],
+        updatedManualVanillaRecipeDoc.scalingFactor || 1.0,
+      );
+
+      const updatedLlmCorrectedVanillaRecipeDoc = await db.collection(
+        "MenuManager.recipes",
+      ).findOne({ _id: llmPulledRecipeId });
+      assertExists(
+        updatedLlmCorrectedVanillaRecipeDoc,
+        "LLM-corrected Vanilla Cupcakes recipe doc should exist for recalculation",
+      );
+      expectedFinalLlmRecipeCost = await calculateExpectedRecipeCost(
+        updatedLlmCorrectedVanillaRecipeDoc.ingredients || [],
+        updatedLlmCorrectedVanillaRecipeDoc.scalingFactor || 1.0,
+      );
+
+      assertAndLog(
+        updatedPancakesRecipeDoc?.dishPrice,
+        expectedPancakesCost,
+        "Pancakes dishPrice should be updated after flour price change",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      assertAndLog(
+        updatedManualVanillaRecipeDoc?.dishPrice,
+        expectedVanillaCost, // Corrected from expectedManualVanillaCost
+        "Manual Vanilla Cupcakes dishPrice should be updated after flour price change",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      assertAndLog(
+        updatedLlmCorrectedVanillaRecipeDoc?.dishPrice,
+        expectedFinalLlmRecipeCost,
+        "LLM-corrected Vanilla Cupcakes dishPrice should be updated after flour price change",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updatedMenu = await db.collection("MenuManager.menus").findOne({
+        _id: createdMenuId,
+      });
+      const expectedTotalMenuCost = parseFloat((expectedPancakesCost +
+        expectedVanillaCost + expectedFinalLlmRecipeCost).toFixed(2));
+      assertAndLog(
+        updatedMenu?.menuCost,
+        expectedTotalMenuCost,
+        "Menu cost should be updated after flour price change",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      const updatedCart = await db.collection("MenuManager.carts").findOne({
+        _id: cartId,
+      });
+      assertAndLog(
+        updatedCart?.weeklyCost,
+        expectedTotalMenuCost,
+        "Cart weekly cost should be updated after flour price change",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await client.close();
+});
+```
