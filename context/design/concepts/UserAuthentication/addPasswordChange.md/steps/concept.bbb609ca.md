@@ -1,0 +1,59 @@
+---
+timestamp: 'Wed Oct 15 2025 08:02:22 GMT-0400 (Eastern Daylight Time)'
+parent: '[[../20251015_080222.460492db.md]]'
+content_id: bbb609ca31f3ee5f69db5b435755492c18427c3cf54318283833749c9f64153e
+---
+
+# concept: UserAuthentication
+
+**concept** UserAuthentication
+
+**purpose** limit User access to particular subset of resources
+
+**principle** a person is *registered* as a User with a username and password, afterwards that person can *authenticate* as their registered user and view the resources they have access to. They can also *update* their password as needed. If that person was the first user to register then they automatically are the admin, and have access to all resources. Administrators can *grantAdmin* to other users if necessary and *deleteUser* their own account as long as there is still another admin.
+
+**state**\
+    a set of Users with\
+        a username String\
+        a password String\
+        an admin flag Bool\\
+
+**actions**\
+    register (username: String, password: String):\
+            **requires** no User exists with username\
+            **effects** creates new User w/ username and password, if first user created admin flag set to true\
+    authenticate (username: String, password: String): (user: User)\
+            **requires** User exists with that username and password\
+            **effects** authenticated as returned User and can view other concepts data that User has
+    deleteUser (userToDelete: User)\
+            **requires**\
+                `userToDelete` is in `Users`\
+                and calling user is `userToDelete` or is an admin\
+                and (not `userToDelete.admin` or (count(u in Users where `u.admin` is true) > 1))\
+            **effects** removes `userToDelete` from `Users`
+
+    grantAdmin (targetUser: User)\
+            **requires**\
+                `targetUser` is in `Users`\
+                and function caller is admin\
+            **effects** sets `targetUser.admin` to true
+
+    updatePassword (user: User, oldPassword: String, newPassword: String):\
+            **requires**\
+                `user` is in `Users`\
+                and `user.password` matches `oldPassword`\
+                and calling user is `user` or is an admin\
+            **effects** `user.password` is set to `newPassword`
+
+**queries**
+    \_getIsUserAdmin (user: User): (isAdmin: Bool)\
+        **requires** `user` is in `Users`\
+        **effects** returns `user.admin`
+
+    \_getListOfUsers (): (users: set of User)\
+        **requires** true\
+        **effects** returns the set of all `Users`
+
+    \_getNumberOfAdmins (): (count: Number)\
+        **requires** true\
+        **effects** returns count(u in Users where `u.admin` is true)
