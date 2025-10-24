@@ -1,7 +1,7 @@
 
 ## PurchaseSystem
 
-**concept** PurchaseSystem \[PurchaseOption]
+**concept** PurchaseSystem
 
 **purpose** Manage and aggregate costs and required item quantities for various entities (recipes, menus, carts), tracking their purchase status.
 
@@ -9,13 +9,14 @@
 
 **state**\
   a set of AtomicOrder with\
-    a purchaseOption PurchaseOption\
+    an associateID String // Associate Order to external object\
     a quantity Float // Ex. 3.0\
     a units String // Ex. "lbs", "oz", "count"\
     a price Float // Ex. 5.99 (cost for this specific quantity)\
     a parentSelectOrder SelectOrder
 
   a set of SelectOrder with\
+    an associateID String // Associate Order to external object\
     a desiredQuantity Float // Ex. 5.0\
     a desiredUnits String // Ex. "lbs"\
     a childAtomicOrders Set of AtomicOrder\
@@ -23,23 +24,24 @@
     a purchased Bool
 
   a set of CompositeOrder with\
+    an associateID String // Associate Order to external object\
     a childOrders Map of (SelectOrder | CompositeOrder) to Float // Map from Order ID to its scale factor\
     a parentCompositeOrders Set of CompositeOrder\
     a totalCost Float // Optimally calculated\
-    a purchased Bool\
+    a purchased Bool\\
 
 **actions**\
-  createAtomicOrder (purchaseOption: PurchaseOption, quantity: Float, units: String, price: Float): (atomicOrder: AtomicOrder)\
-    **requires** `purchaseOption` exists.\
+  createAtomicOrder (associateID: String, quantity: Float, units: String, price: Float): (atomicOrder: AtomicOrder)\
+    **requires** No order already exists for `associateID`.\
     **effects** Creates a new `AtomicOrder` with the given parameters. Its `parentSelectOrder` is initially null. Returns the new `AtomicOrder` ID.
 
-  createSelectOrder (desiredQuantity: Float, desiredUnits: String): (selectOrder: SelectOrder)\
-    **requires** `desiredQuantity` > 0.\
-    **effects** Creates a new `SelectOrder` with `desiredQuantity`, `desiredUnits`. Initializes `purchased` to `false`. Returns the new `SelectOrder` ID.
+  createSelectOrder (associateID: String, desiredQuantity: Float, desiredUnits: String): (selectOrder: SelectOrder)\
+    **requires** No order already exists for `associateID`. `desiredQuantity` > 0.\
+    **effects** Creates a new `SelectOrder` with `associateID`, `desiredQuantity`, `desiredUnits`. Initializes `purchased` to `false`. Returns the new `SelectOrder` ID.
 
-  createCompositeOrder (): (compositeOrder: CompositeOrder)\
-    **requires** true.\
-    **effects** Creates a new `CompositeOrder`. Initializes `childOrders` to empty, `totalCost` to 0.0, and `purchased` to `false`. Returns the new `CompositeOrder` ID.
+  createCompositeOrder (associateID: String): (compositeOrder: CompositeOrder)\
+    **requires** No order already exists for `associateID`.\
+    **effects** Creates a new `CompositeOrder` with `associateID`. Initializes `childOrders` to empty, `totalCost` to 0.0, and `purchased` to `false`. Returns the new `CompositeOrder` ID.
 
   addSelectSubOrder (selectOrder: SelectOrder, atomicOrder: AtomicOrder)\
     **requires** `selectOrder` exists. `atomicOrder` exists. `atomicOrder` is not already in `selectOrder.childAtomicOrders`.\
@@ -71,29 +73,33 @@
 
   deleteOrder (order: (AtomicOrder | SelectOrder | CompositeOrder))\
     **requires** `order` exists.\
-    **effects** Deletes the specified `order`.\\
-* If `order` is an `AtomicOrder`:
-    * If `order.parentSelectOrder` is not null: removes `order` from `order.parentSelectOrder.childAtomicOrders`. Triggers `calculateOptimalPurchase` for all `parentCompositeOrders` of `order.parentSelectOrder`.
-    * Sets `atomicOrder.parentSelectOrder` to null.
-* If `order` is a `SelectOrder`:
-    * For each `pco` in `order.parentCompositeOrders`: removes `order` from `pco.childOrders`. Triggers `calculateOptimalPurchase` for `pco` and its ancestors.
-    * For each `ao` in `order.childAtomicOrders`: deletes `ao`.
-* If `order` is a `CompositeOrder`:
-    * For each `pco` in `order.parentCompositeOrders`: removes `order` from `pco.childOrders`. Triggers `calculateOptimalPurchase` for `pco` and its ancestors.
-    * Removes references to its own `childOrders`.
-
+    **effects** Deletes the specified `order`.\
+    - If `order` is an `AtomicOrder`:\
+        - If `order.parentSelectOrder` is not null: removes `order` from `order.parentSelectOrder.childAtomicOrders`. Triggers `calculateOptimalPurchase` for all `parentCompositeOrders` of `order.parentSelectOrder`.\
+        - Sets `order.parentSelectOrder` to null.\
+    - If `order` is a `SelectOrder`:\
+        - For each `pco` in `order.parentCompositeOrders`: removes `order` from `pco.childOrders`. Triggers `calculateOptimalPurchase` for `pco` and its ancestors.\
+        - For each `ao` in `order.childAtomicOrders`: deletes `ao`.\
+    - If `order` is a `CompositeOrder`:\
+        - For each `pco` in `order.parentCompositeOrders`: removes `order` from `pco.childOrders`. Triggers `calculateOptimalPurchase` for `pco` and its ancestors.\
+        - Removes references to its own `childOrders`.
+      
 **queries**\
-  \_getAtomicOrderDetails (atomicOrder: AtomicOrder): (purchaseOption: PurchaseOption, quantity: Float, units: String, price: Float, parentSelectOrder: SelectOrder)\
+  \_getAtomicOrderDetails (atomicOrder: AtomicOrder): (associateID: String, quantity: Float, units: String, price: Float, parentSelectOrder: SelectOrder)\
     **requires** `atomicOrder` exists.\
-    **effects** Returns the `purchaseOption`, `quantity`, `units`, `price`, and `parentSelectOrder` of the `atomicOrder`.
+    **effects** Returns the `associateID`, `quantity`, `units`, `price`, and `parentSelectOrder` of the `atomicOrder`.
 
-  \_getSelectOrderDetails (selectOrder: SelectOrder): (desiredQuantity: Float, desiredUnits: String, childAtomicOrders: Set of AtomicOrder, purchased: Bool, parentCompositeOrders: Set of CompositeOrder)\
+  \_getSelectOrderDetails (selectOrder: SelectOrder): (associateID: String, desiredQuantity: Float, desiredUnits: String, childAtomicOrders: Set of AtomicOrder, purchased: Bool, parentCompositeOrders: Set of CompositeOrder)\
     **requires** `selectOrder` exists.\
-    **effects** Returns the `desiredQuantity`, `desiredUnits`, `childAtomicOrders`, `purchased`, and `parentCompositeOrders` of the `selectOrder`.
+    **effects** Returns the `associateID`, `desiredQuantity`, `desiredUnits`, `childAtomicOrders`, `purchased`, and `parentCompositeOrders` of the `selectOrder`.
 
-  \_getCompositeOrderDetails (compositeOrder: CompositeOrder): (childOrders: Map of (SelectOrder | CompositeOrder) to Float, totalCost: Float, purchased: Bool, parentCompositeOrders: Set of CompositeOrder)\
+  \_getCompositeOrderDetails (compositeOrder: CompositeOrder): (associateID: String, childOrders: Map of (SelectOrder | CompositeOrder) to Float, totalCost: Float, purchased: Bool, parentCompositeOrders: Set of CompositeOrder)\
     **requires** `compositeOrder` exists.\
-    **effects** Returns the `childOrders`, `totalCost`, `purchased`, and `parentCompositeOrders` of the `compositeOrder`.
+    **effects** Returns the `associateID`, `childOrders`, `totalCost`, `purchased`, and `parentCompositeOrders` of the `compositeOrder`.
+
+  \_getOrderByAssociateID (associateID: String): (order: (AtomicOrder | SelectOrder | CompositeOrder))\
+    **requires** Order exists with `associateID`.\
+    **effects** Returns the `order` associated with that ID.
 
   \_getOptimalPurchase (compositeOrder: CompositeOrder): (optimalCost: Float, selectedAtomicOrders: Map of SelectOrder to AtomicOrder)\
     **requires** `compositeOrder` exists. `calculateOptimalPurchase` has been run for this `compositeOrder` and its sub-tree.\
