@@ -1,13 +1,8 @@
-[@concept-design-overview](../../background/concept-design-overview.md)
-
-[@concept-specifications](../../background/concept-specifications.md)
-
-[@PurchaseSystem](./PurchaseSystem.md)
-
-PurchaseSystem.md Modifications:
-1. Each order type now has its own orderID, please propogate this change to all of the actions. Don't change anything else
-
-# Please output new PurchaseSystem.md with the above new changes. Respect everything else including formatting.
+---
+timestamp: 'Fri Oct 24 2025 06:02:33 GMT-0400 (Eastern Daylight Time)'
+parent: '[[../20251024_060233.b1ba7caa.md]]'
+content_id: 8419c14a767184bcd445861b7f0a6ad520803d9d38773f78e8b60e5b8ed2d7b7
+---
 
 # response:
 
@@ -67,13 +62,15 @@ Another key distinction between concept design and traditional design is that co
 Because concepts are fully independent of one another, they cannot refer to each other or use each other's services. Concepts are therefore composed using *synchronizations* (or *syncs*). A sync is a rule that says that *when* an action happens in one concept, *where* the state of some concept has some property, *then* some action happens in another concept. For example, a sync may say that *when* a post p is deleted (in the *Post* concept, through the occurrence of an action), and *where* c is a comment on the post p (in the *Comment* concept), then comment c is deleted (in the *Comment* concept). This can be written
 
 ```
+
 sync CascadePostDeletion
-when 
-	Post.delete (p)
-where 
-	in Comment: target of c is p
-then 
-	Comment.delete (c)
+when
+Post.delete (p)
+where
+in Comment: target of c is p
+then
+Comment.delete (c)
+
 ```
 
 Not that the syncs is not only causing an action to happen but also providing input arguments to actions (in this case the comment to be deleted).
@@ -89,14 +86,16 @@ Some other examples of how syncs are used:
 Syncs can be used for authentication and authorization. In these case, it is common to represent requests made by a user as actions of a kind of pseudo concept (which is usually called *Request*). For example, a sync might say that if a user requests to delete a post, and the user is the author of the post, then the deletion can go ahead:
 
 ```
+
 sync DeletePost
-when 
-	Request.deletePost (p, s)
-where 
-	in Session: user of session s is u
-	in Post: author of p is u
-then 
-	Post.delete (p)
+when
+Request.deletePost (p, s)
+where
+in Session: user of session s is u
+in Post: author of p is u
+then
+Post.delete (p)
+
 ```
 
 # Structure of a concept specification
@@ -179,9 +178,11 @@ A good principle should satisfy these criteria:
 The concept state is a data model that represents the set of possible states of the executing concept. For example, a concept for authenticating users might have a state declared like this:
 
 ```
+
 a set of Users with
-  a username String
-  a password String
+a username String
+a password String
+
 ```
 
 This says that the state includes a set of users and associates with each user a username and a password, each of which is a string. Mathematically, this says that there is a set of users and two relations, one called username and one called password, both from users to strings. Every value in a state is either a primitive (like a number, boolean or string) or an entity value (like a user). Entity values should be viewed as identities or references.
@@ -191,9 +192,11 @@ This says that the state includes a set of users and associates with each user a
 Although it is possible to think of a declaration such as this as defining a collection of composite objects (users with username and password fields), this view is not a completely reliable one because it does not account for the way concept states can represent different aspects of an object. For example, a separate *UserProfile* concept could have a state that includes this declaration
 
 ```
+
 a set of Users with
-  a bio String
-  a thumbnail Image
+a bio String
+a thumbnail Image
+
 ```
 
 associating a bio and thumbnail with each user. These two declarations describe different properties of users, and are best thought of as different views of a user, or as a partitioning of the data model. This kind of separation of concerns is a central feature of concept design and is not easily explained using traditional object-oriented notions that require an object to have a single global definition.
@@ -217,7 +220,9 @@ If the state is to be initialized in a domain-specific way, actions will be need
 An action can have input arguments and results. For example, for the *register* action of the *UserAuthentication* concept we might have
 
 ```
+
 register (username: String, password: String): (user: User)
+
 ```
 
 which says that each occurrence of the register action presents as an input a username string and a password string, and returns as an output (the identifier of) a user.
@@ -225,7 +230,9 @@ which says that each occurrence of the register action presents as an input a us
 In concept specifications, all arguments and results are named, and we allow multiple results. Errors and exceptions are treated as if they were normal results. Thus to represent the possibility that the register action might fail, we could declare an overloaded version of the action that returns an error string:
 
 ```
+
 register (username: String, password: String): (error: String)
+
 ```
 
 As with the pattern matching syntax of functional languages like ML, a concept specification can declare multiple forms for a single action name so long as they have distinct argument/result names. For design work, error cases are not normally specified, but they are included when specifying concepts for implementation.
@@ -237,15 +244,19 @@ When actions are implemented in TypeScript code, each action is represented by a
 Note that in the implementation, a successful execution *must* return a dictionary (but it can be empty). An empty dictionary can be used to represent successful completion, but if there is also an overloaded version of the action that returns an error, the successful case must return a dictionary that is non-empty. So this is valid
 
 ```
+
 register (username: String, password: String): (user: User)
 register (username: String, password: String): (error: String)
+
 ```
 
 but this is not valid
 
 ```
+
 register (username: String, password: String)
 register (username: String, password: String): (error: String)
+
 ```
 
 because the non-error case (implicitly) returns an empty dictionary. Since syncs support partial matches in which the argument name is not specified, a partial pattern that does not specify the result name will match on both cases, and it will not be possible to distinguish the successful, non-error case.
@@ -307,9 +318,11 @@ Queries are reads of the concept state. Explicit query specifications are often 
 For example, for a *UserProfile* concept with this state
 
 ```
+
 a set of Users with
-  a username String
-  a password String
+a username String
+a password String
+
 ```
 
 one could define queries to extract the username and password of a user:
@@ -320,7 +333,9 @@ one could define queries to extract the username and password of a user:
     **effects** returns username of user
 
 ```
+
 \_getPassword (user: User) : (password: String)
+
 ```
 
     **requires** user exists
@@ -329,8 +344,10 @@ one could define queries to extract the username and password of a user:
 Some queries return multiple objects. For example, groups contain sets of users
 
 ```
+
 a set of Groups with
-  a users set of User
+a users set of User
+
 ```
 
 then a query could take a group and return the set of users in it:
@@ -343,7 +360,9 @@ then a query could take a group and return the set of users in it:
 Note that queries, unlike actions, can return structured objects. For example, given the definitions of users and groups above, we could define a query
 
 ```
+
 \_getUsersWithUsernamesAndPasswords (group: Group) : (user: {username: String, password: String})
+
 ```
 
     **requires** group exists

@@ -9,7 +9,7 @@ Concept tests aim to verify:
 
 *   **Action Requirements (`requires`)**: Ensure actions correctly prevent execution or return an error when preconditions are not met.
 *   **Action Effects (`effects`)**: Confirm that the state changes and results produced by an action align with its postconditions.
-*   **Principle Fulfillment**: Demonstrate that a series of actions, as described in the concept's principle, leads to the expected functional outcome.
+*   **Principle Fulfillment**: Demonstrate that a series of actions, as described in the **principle**, leads to the expected functional outcome.
 
 ## 2. Test File Structure and Organization
 
@@ -69,7 +69,7 @@ function assertAndLog<T>(
   }
 }
 
-// Usage within a test step
+// Example of usage within a test step
 await t.step("1. Administrator creates a new item (ground pepper)", async () => {
   const stepMessage = "1. Administrator creates a new item (ground pepper)";
   printStepHeader(stepMessage);
@@ -83,18 +83,25 @@ await t.step("1. Administrator creates a new item (ground pepper)", async () => 
     stepMessage,
     ++checkIndex,
   );
-  const groundPepperItem = (createResult as { item: ID }).item;
+  const groundPepperItem = (createResult as { item: ID }).item; // Type assertion to access 'item'
 
   const queriedItem = await storeCatalog._getItemByName({ name: "ground pepper" });
   assertAndLog(
-    "item" in queriedItem[0], // Query results are arrays
-    true,
+    "error" in queriedItem, // First, check if it's an error
+    false,
+    "Query by name should not return an error",
+    stepMessage,
+    ++checkIndex,
+  );
+  assertAndLog(
+    (queriedItem as { item: ID }[]).length, // Then, assert its length after casting
+    1,
     "Query by name should find the created item",
     stepMessage,
     ++checkIndex,
   );
   assertAndLog(
-    queriedItem[0].item,
+    (queriedItem as { item: ID }[])[0].item, // Access the first element after casting
     groundPepperItem,
     "Queried item ID should match the created item ID",
     stepMessage,
@@ -103,35 +110,80 @@ await t.step("1. Administrator creates a new item (ground pepper)", async () => 
 });
 ```
 
-## 4. Testing for Expected Errors
+## 4. Accessing Action and Query Outputs During Testing
 
-When an action is expected to fail (e.g., due to a failed precondition), verify that an error is returned with the correct message.
+A crucial aspect of testing concepts is correctly accessing the results returned by actions and queries, which follow specific patterns:
 
-*   **Error Return Format**: For actions, an error is returned as `{ error: "error message" }`.
-*   **Assertion Pattern**: Check for the `error` property in the result and then assert its content.
+*   **Actions**: Typically return a `Result<T>` type, which is either `T` (a dictionary object with specific fields, potentially `Empty` for no explicit return) or `{ error: string }`.
+*   **Queries**: Always return a `Result<T[]>` type, meaning an *array* of results or an `{ error: string }` object.
+
+Here's how to properly handle these outputs:
+
+### A. Checking for Success vs. Error
+
+Before accessing any data, always determine if the operation was successful or if an error occurred.
+
+*   **For successful actions returning a specific payload (e.g., `Result<{ recipe: ID }>`):**
+    ```typescript
+    const createResult = await cookBook.createRecipe({ name: "Spicy Pasta", user: chefAlice });
+    assertAndLog("recipe" in createResult, true, "Recipe creation should succeed", stepMessage, ++checkIndex);
+    // If the above passes, TypeScript now knows `createResult` is `{ recipe: ID }`
+    const spicyPastaRecipeId = (createResult as { recipe: ID }).recipe;
+    ```
+    Here, `"recipe" in createResult` is used as a type guard to confirm the success case.
+
+*   **For successful actions returning `Empty` (e.g., `Result<Empty>`):**
+    ```typescript
+    const addPastaResult = await cookBook.addRecipeIngredient({ /* ... */ });
+    assertAndLog("error" in addPastaResult, false, "Adding pasta should succeed (no error)", stepMessage, ++checkIndex);
+    // No specific data to extract, just verify no error.
+    ```
+
+*   **For successful queries returning an array (e.g., `Result<Item[]>`):**
+    ```typescript
+    const details = await cookBook._getRecipeDetails({ recipe: spicyPastaRecipeId });
+    assertAndLog("error" in details, false, "Query recipe details should not return an error", stepMessage, ++checkIndex);
+    // If the above passes, TypeScript now knows `details` is the array type.
+    assertAndLog((details as { name: string }[]).length, 1, "Should find one recipe detail", stepMessage, ++checkIndex);
+    assertAndLog((details as { name: string }[])[0].name, "Spicy Pasta", "Recipe name should match", stepMessage, ++checkIndex);
+    ```
+    Note the explicit cast `(details as { name: string }[])` after confirming `!("error" in details)`. This helps TypeScript understand the structure and allows access to array methods like `length` or indexing like `[0]`.
+
+*   **For expected errors (both actions and queries):**
+    ```typescript
+    const emptyNameResult = await cookBook.createRecipe({ name: "", user: testUser });
+    assertAndLog("error" in emptyNameResult, true, "Should return error for empty name", stepMessage, ++checkIndex);
+    assertAndLog(
+      (emptyNameResult as { error: string }).error,
+      "Recipe name cannot be empty.",
+      "Error message for empty name mismatch",
+      stepMessage,
+      ++checkIndex,
+    );
+    ```
+    Here, `"error" in emptyNameResult` acts as the type guard, allowing safe access to `emptyNameResult.error`.
+
+### B. Type Assertions for Safe Access
+
+TypeScript needs help to narrow down union types. Use type assertions (`as Type`) after a type guard check to tell TypeScript what type the variable is, allowing you to access its specific properties or methods.
+
+*   `const myId = (createResult as { id: ID }).id;`
+*   `const firstItem = (queryResult as Item[])[0];`
+*   `const errorMessage = (errorResult as { error: string }).error;`
+
+### C. Handling Optional Chaining and Existence
+
+When dealing with potentially `undefined` or `null` values (e.g., from `Array.prototype.find` or optional chaining `?.`), it's best practice to first assert their existence before accessing their properties. The `assertExistsAndLog` helper is ideal for this.
 
 ```typescript
-await t.step("Attempt to create duplicate item (should fail)", async () => {
-  const stepMessage = "Attempt to create duplicate item (should fail)";
-  printStepHeader(stepMessage);
-  let checkIndex = 0;
+const ingredients = await cookBook._getRecipeIngredients({ recipe: recipeId });
+// ... (assert ingredients is not an error and is an array)
 
-  const duplicateCreateResult = await storeCatalog.createItem({ primaryName: "ground pepper" });
-  assertAndLog(
-    "error" in duplicateCreateResult,
-    true,
-    "Creating a duplicate item should return an error",
-    stepMessage,
-    ++checkIndex,
-  );
-  assertAndLog(
-    (duplicateCreateResult as { error: string }).error,
-    `An item with the name "ground pepper" already exists.`,
-    "Error message should indicate duplicate name",
-    stepMessage,
-    ++checkIndex,
-  );
-});
+const flour = (ingredients as { ingredients: { name: string; quantity: number; units: string }[] }[])[0]
+  .ingredients.find((i) => i.name === "Flour");
+
+assertExistsAndLog(flour, "Flour ingredient should exist", stepMessage, ++checkIndex); // Assert existence first
+assertAndLog(flour.quantity, 300, "Flour quantity should be updated", stepMessage, ++checkIndex); // Now safely access properties
 ```
 
 ## 5. Database Management
@@ -156,4 +208,4 @@ Deno.test("MyConcept - Some Feature", async (t) => {
 
 ## 6. Testing Library
 
-Within `utils/testing.ts` are all of the necessary predefined functions necessary for testing: assertAndLog, assertExistsAndLog, printStepHeader, and printTestHeader.
+Within `utils/testing.ts` are all of the necessary predefined functions necessary for testing: `assertAndLog`, `assertExistsAndLog`, `printStepHeader`, and `printTestHeader`.
