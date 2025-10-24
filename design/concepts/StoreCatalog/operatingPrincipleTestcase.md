@@ -1,3 +1,15 @@
+[@implementation](implementation.md)
+
+[@testing-concepts](../../background/testing-concepts.md)
+
+[@example-test-formatting](../../learning/example-test-formatting.md)
+
+[@StoreCatalogConcept.ts](../../../src/concepts/StoreCatalog/StoreCatalogConcept.ts)
+
+# Using the StoreCatalogConcept.test.ts file as an example, please output a new example-test-formatting.md document with a condensed summary of learnings.
+
+
+# response:
 
 # Example Test Formatting and Best Practices
 

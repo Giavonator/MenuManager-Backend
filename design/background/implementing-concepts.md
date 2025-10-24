@@ -84,7 +84,7 @@ you would have the following class properties and constructor:
 
 ```typescript
 import { Collection, Db } from "npm:mongodb";
-import { Empty, ID } from "@utils/types.ts";
+import { Empty, ID, Result } from "@utils/types.ts";
 
 // Declare collection prefix, use concept name
 const PREFIX = "Labeling" + ".";
@@ -92,6 +92,15 @@ const PREFIX = "Labeling" + ".";
 // Generic types of this concept
 type Item = ID;
 type Label = ID;
+
+type CreateLabelInput = { name }: { name: string };
+type CreateLabelOutput = Result<Empty>;
+
+type AddLabelInput = { item, label }: { item: Item; label: Label };
+type AddLabelOutput = Result<Empty>;
+
+type DeleteLabelInput = { item, label }: { item: Item; label: Label };
+type DeleteLabelOutput = Result<Empty>;
 
 /**
  * a set of Items with
@@ -125,7 +134,7 @@ export default class LabelingConcept {
    *
    * **effects** ...
    */
-  createLabel({ name }: { name: string }): Empty {
+  createLabel(CreateLabelInput): CreateLabelOutput {
     // todo: create label
     return {};
   }
@@ -136,7 +145,7 @@ export default class LabelingConcept {
    *
    * **effects** ...
    */
-  addLabel({ item, label }: { item: Item; label: Label }): Empty {
+  addLabel(AddLabelInput): AddLabelOutput {
     // todo: add label
     return {};
   }
@@ -147,7 +156,7 @@ export default class LabelingConcept {
    *
    * **effects** ...
    */
-  deleteLabel({ item, label }: { item: Item; label: Label }): Empty {
+  deleteLabel(DeleteLabelInput): DeleteLabelOutput {
     // todo: delete label
     return {};
   }
@@ -197,6 +206,42 @@ the query specification
 ```
 
 says that the query should return an array of dictionaries, each with a `user` field that holds a dictionary with a `username` and `password` field.
+
+# Inputs/Outputs Specification
+
+As explained above arguments and results must be defined as dictionaries. The input/output types must be defined at the top of the implementation file, this way we can simplify the actions and queries below.
+
+For queries, remember that error output is a dictionary of error to the string error message: `{error: "the error message"}`. Define the QueryOutput in the same format as the action, but when returing an error in a query return it as `{error: "the error message"}` NOT an array.
+
+Example query input/output:
+```typescript
+
+type GetItemByNameInput = { name: string };
+type GetItemByNameOutput = Result<{ item: Item }[]>;
+
+```
+
+Example query returning error:
+```typescript
+
+if (isError) {
+      return {
+        error: `Example message whatever the issue was`,
+      };
+    }
+```
+
+Example returning regular output:
+```typescript
+    return [{
+      quantity: poDoc.quantity,
+      units: poDoc.units,
+      price: poDoc.price,
+      store: poDoc.store,
+      confirmed: poDoc.confirmed,
+    }];
+```
+
 
 # Imports
 

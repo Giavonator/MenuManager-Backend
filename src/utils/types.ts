@@ -10,3 +10,9 @@ export type ID = string & { [Brand]: true };
  * Empty record type: enforces no entries.
  */
 export type Empty = Record<PropertyKey, never>;
+
+interface ErrorType {
+  error: string;
+}
+
+export type Result<T> = T | ErrorType;
