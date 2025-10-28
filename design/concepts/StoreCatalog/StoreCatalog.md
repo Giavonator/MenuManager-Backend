@@ -1,24 +1,22 @@
 
-## StoreCatalog
+# StoreCatalog
 
 **concept** StoreCatalog [AtomicOrder, SelectOrder]
 
 **purpose** Manage a comprehensive catalog of purchasable ingredients, their alternative names, and available purchase options across different stores.
 
-**principle** An administrator `createItem` for a new ingredient like "ground pepper". They then discover multiple `PurchaseOption`s for it, such as "3 lbs for $5.99 at Sprout's" and "1 lb for $2.50 at Trader Joe's", and `addPurchaseOption` for each. Later, another user refers to "pepper", so the administrator `addItemName` "pepper" as an alias. Once verified, the administrator `confirmItem` so it can be used in orders.
+**principle** An administrator `createItem` for a new ingredient like "ground pepper". They then discover multiple `PurchaseOption`s for it, such as "3 lbs for $5.99 at Sprout's" and "1 lb for $2.50 at Trader Joe's", and `addPurchaseOption` for each. Later, another user refers to "pepper", so the administrator `addItemName` "pepper" as an alias. Once verified, the administrator `confirmItem` at to mark that it is official.
 
 **state**\
   a set of Item with\
     a names Set of String // Ex. {'pepper', 'ground pepper', 'course pepper'}\
     a purchaseOptions Set of PurchaseOption\
-    a purchase SelectOrder\
   a set of PurchaseOption with\
     a store String // Ex. "Sprout's"\
     a quantity Float // Ex. 3.0\
     a units String // Ex. "lbs", "oz", "count"\
     a price Float // Ex. 5.99\
     a confirmed Bool\
-    a purchase AtomicOrder\
 
 **actions**\
   createItem (primaryName: String): (item: Item)\

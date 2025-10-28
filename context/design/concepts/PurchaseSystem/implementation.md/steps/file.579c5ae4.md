@@ -1,0 +1,1815 @@
+---
+timestamp: 'Tue Oct 28 2025 18:01:24 GMT-0400 (Eastern Daylight Time)'
+parent: '[[../20251028_180124.c00ab3ee.md]]'
+content_id: 579c5ae4d4b9254136db08790c408e8d3b0d7fc0c2f91bc8014f31821db85ce0
+---
+
+# file: src/concepts/PurchaseSystem/PurchaseSystemConcept.ts
+
+```typescript
+import { Collection, Db, UpdateFilter } from "npm:mongodb";
+import { Empty, ID, Result } from "@utils/types.ts";
+import { freshID } from "@utils/database.ts";
+
+// Declare collection prefix, use concept name
+const PREFIX = "PurchaseSystem" + ".";
+
+/* State Interfaces */
+
+/**
+ * a set of AtomicOrder with
+ * 	an associateID ID // Associate Order to external globally unique ID
+ * 	a quantity Float // Ex. 3.0
+ * 	a units String // Ex. "lbs", "oz", "count"
+ * 	a price Float // Ex. 5.99 (cost for this specific quantity)
+ * 	a parentOrder SelectOrder
+ */
+interface AtomicOrder {
+  _id: ID;
+  associateID: ID;
+  quantity: number;
+  units: string;
+  price: number;
+  parentOrder: ID; // Reference to SelectOrder ID
+}
+
+/**
+ * a set of SelectOrder with
+ * 	an associateID ID // Associate Order to external globally unique ID
+ * 	a baseQuantity Float // Ex. 1.0, (-1 if no childAtomicOrders yet, if so ignore it during calculations)
+ * 	a baseUnits String // Ex. "lbs", internal unit conversion table if AtomicOrder has different units
+ * 	a childAtomicOrders Set of AtomicOrder // AtomicOrder options available for *this* SelectOrder.
+ * 	a parentOrders Set of CompositeOrder\\
+ */
+interface SelectOrder {
+  _id: ID;
+  associateID: ID;
+  baseQuantity: number; // -1 if no options, otherwise quantity of first added atomic order.
+  baseUnits: string; // "" if no options, otherwise units of first added atomic order.
+  childAtomicOrders: ID[]; // References to AtomicOrder IDs
+  parentOrders: ID[]; // References to CompositeOrder IDs
+}
+
+/**
+ * a set of CompositeOrder with
+ * 	an associateID ID // Associate Order to external globally unique ID
+ * 	a childSelectOrders Map of SelectOrder to Float // Scale factor for purchasing calculations
+ * 	a childCompositeOrders Map of CompositeOrder to Float // Scale factor for purchasing calculations
+ * 	an optimalPurchase Map of AtomicOrder to Int // Calculated during calculateOptimalPurchase, must purchase whole AtomicOrders
+ * 	a totalCost Float // Optimally calculated
+ * 	a parentOrder CompositeOrder
+ * 	a rootOrder CompositeOrder
+ * 	a purchased Bool
+ */
+interface CompositeOrder {
+  _id: ID;
+  associateID: ID;
+  childSelectOrders: Record<ID, number>; // Map<SelectOrderID, scaleFactor>
+  childCompositeOrders: Record<ID, number>; // Map<CompositeOrderID, scaleFactor>
+  optimalPurchase: Record<ID, number>; // Map<AtomicOrderID, quantityToPurchase>
+  totalCost: number;
+  parentOrder: ID; // Reference to CompositeOrder ID (or itself if root)
+  rootOrder: ID; // Reference to the root CompositeOrder ID
+  purchased: boolean;
+}
+
+/* Action Input/Output Types */
+
+// createSelectOrder
+type CreateSelectOrderInput = { associateID: ID };
+type CreateSelectOrderOutput = Result<{ selectOrder: ID }>;
+
+// createAtomicOrder
+type CreateAtomicOrderInput = {
+  selectOrder: ID;
+  associateID: ID;
+  quantity: number;
+  units: string;
+  price: number;
+};
+type CreateAtomicOrderOutput = Result<{ atomicOrder: ID }>;
+
+// deleteAtomicOrder
+type DeleteAtomicOrderInput = { selectOrder: ID; atomicOrder: ID };
+type DeleteAtomicOrderOutput = Result<Empty>;
+
+// updateAtomicOrder (overloaded)
+type UpdateAtomicOrderInputQuantity = { atomicOrder: ID; quantity: number };
+type UpdateAtomicOrderInputUnits = { atomicOrder: ID; units: string };
+type UpdateAtomicOrderInputPrice = { atomicOrder: ID; price: number };
+type UpdateAtomicOrderOutput = Result<Empty>;
+
+// createCompositeOrder
+type CreateCompositeOrderInput = { associateID: ID };
+type CreateCompositeOrderOutput = Result<{ compositeOrder: ID }>;
+
+// addSelectOrderToCompositeOrder
+type AddSelectOrderToCompositeOrderInput = {
+  compositeOrder: ID;
+  selectOrder: ID;
+  scaleFactor: number;
+};
+type AddSelectOrderToCompositeOrderOutput = Result<Empty>;
+
+// removeSelectOrderFromCompositeOrder
+type RemoveSelectOrderFromCompositeOrderInput = {
+  compositeOrder: ID;
+  selectOrder: ID;
+};
+type RemoveSelectOrderFromCompositeOrderOutput = Result<Empty>;
+
+// addCompositeSubOrder
+type AddCompositeSubOrderInput = { parentOrder: ID; childOrder: ID };
+type AddCompositeSubOrderOutput = Result<Empty>;
+
+// removeCompositeSubOrder
+type RemoveCompositeSubOrderInput = { parentOrder: ID; childOrder: ID };
+type RemoveCompositeSubOrderOutput = Result<Empty>;
+
+// updateSubOrderScaleFactor
+type UpdateSubOrderScaleFactorInput = {
+  parentOrder: ID;
+  childOrder: ID;
+  newScaleFactor: number;
+};
+type UpdateSubOrderScaleFactorOutput = Result<Empty>;
+
+// deleteCompositeOrder
+type DeleteCompositeOrderInput = { compositeOrder: ID };
+type DeleteCompositeOrderOutput = Result<Empty>;
+
+// calculateOptimalPurchase
+type CalculateOptimalPurchaseInput = { compositeOrders: ID[] };
+type CalculateOptimalPurchaseOutput = Result<Empty>;
+
+// purchaseOrder
+type PurchaseOrderInput = { compositeOrder: ID };
+type PurchaseOrderOutput = Result<Empty>;
+
+/* Query Input/Output Types */
+
+// _getOrderByAssociateID
+type GetOrderByAssociateIDInput = { associateID: ID };
+type GetOrderByAssociateIDOutput = Result<
+  { order: AtomicOrder | SelectOrder | CompositeOrder }[]
+>;
+
+// _getOptimalPurchase
+type GetOptimalPurchaseInput = { compositeOrder: ID };
+type GetOptimalPurchaseOutput = Result<
+  { optimalPurchase: Record<ID, number> }[]
+>;
+
+// _getOrderCost
+type GetOrderCostInput = { compositeOrder: ID };
+type GetOrderCostOutput = Result<{ totalCost: number }[]>;
+
+/**
+ * PurchaseSystemConcept
+ *
+ * purpose: Manage and aggregate costs and required item quantities for various entities (recipes, menus, carts),
+ * tracking their purchase status and optimizing selections from available purchasing options.
+ */
+export default class PurchaseSystemConcept {
+  atomicOrders: Collection<AtomicOrder>;
+  selectOrders: Collection<SelectOrder>;
+  compositeOrders: Collection<CompositeOrder>;
+
+  constructor(private readonly db: Db) {
+    this.atomicOrders = this.db.collection(PREFIX + "atomicOrders");
+    this.selectOrders = this.db.collection(PREFIX + "selectOrders");
+    this.compositeOrders = this.db.collection(PREFIX + "compositeOrders");
+  }
+
+  /**
+   * Helper to ensure an error message is always a string.
+   */
+  private getErrorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+  }
+
+  /**
+   * Helper to find any order (Atomic, Select, or Composite) by its associateID.
+   * This is used internally for requirements checking.
+   */
+  private async findAnyOrderByAssociateID(
+    associateID: ID,
+  ): Promise<AtomicOrder | SelectOrder | CompositeOrder | null> {
+    const atomic = await this.atomicOrders.findOne({ associateID });
+    if (atomic) return atomic;
+    const select = await this.selectOrders.findOne({ associateID });
+    if (select) return select;
+    const composite = await this.compositeOrders.findOne({ associateID });
+    if (composite) return composite;
+    return null;
+  }
+
+  /**
+   * Helper to find any order (Atomic, Select, or Composite) by its _id.
+   * This is used internally for requirements checking.
+   */
+  private async findAnyOrderById(
+    _id: ID,
+  ): Promise<AtomicOrder | SelectOrder | CompositeOrder | null> {
+    const atomic = await this.atomicOrders.findOne({ _id });
+    if (atomic) return atomic;
+    const select = await this.selectOrders.findOne({ _id });
+    if (select) return select;
+    const composite = await this.compositeOrders.findOne({ _id });
+    if (composite) return composite;
+    return null;
+  }
+
+  /**
+   * Helper to determine if a cycle would be formed when adding a child composite order to a parent.
+   * @param parentId The ID of the potential parent composite order.
+   * @param childId The ID of the potential child composite order.
+   * @returns True if a cycle would be formed, false otherwise.
+   */
+  private async wouldFormCycle(parentId: ID, childId: ID): Promise<boolean> {
+    if (parentId === childId) return true; // Direct self-referential cycle
+
+    const visited = new Set<ID>();
+    let queue: ID[] = [childId];
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      if (currentId === parentId) return true; // Parent is an ancestor of child, adding child would form a cycle
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const current = await this.compositeOrders.findOne({ _id: currentId });
+      if (current) {
+        for (const grandchildId of Object.keys(current.childCompositeOrders)) {
+          if (!visited.has(grandchildId as ID)) {
+            queue.push(grandchildId as ID);
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Recursively updates the rootOrder for a composite order and all its children.
+   * @param compositeOrderId The ID of the composite order to start the update from.
+   * @param newRootOrderId The ID of the new root order.
+   */
+  private async updateRootOrderRecursive(
+    compositeOrderId: ID,
+    newRootOrderId: ID,
+  ): Promise<void> {
+    const composite = await this.compositeOrders.findOne({
+      _id: compositeOrderId,
+    });
+    if (composite && composite.rootOrder !== newRootOrderId) {
+      await this.compositeOrders.updateOne(
+        { _id: compositeOrderId },
+        { $set: { rootOrder: newRootOrderId } },
+      );
+      for (const childId of Object.keys(composite.childCompositeOrders)) {
+        await this.updateRootOrderRecursive(childId as ID, newRootOrderId);
+      }
+    }
+  }
+
+  /**
+   * Action to create a new SelectOrder.
+   *
+   * createSelectOrder (associateID: ID): (selectOrder: SelectOrder)
+   *
+   * **requires** No order already exists for `associateID` within this `PurchaseSystem` concept.
+   *
+   * **effects** Creates a new `SelectOrder` with `associateID`. Initializes `childAtomicOrders` to empty,
+   * `baseQuantity` to -1.0, `baseUnits` to "" (ie. no units yet), `parentOrders` to empty. Returns new `selectOrder` ID.
+   */
+  async createSelectOrder(
+    input: CreateSelectOrderInput,
+  ): Promise<CreateSelectOrderOutput> {
+    try {
+      const { associateID } = input;
+
+      // Requires: No order already exists for `associateID`.
+      if (await this.findAnyOrderByAssociateID(associateID)) {
+        return {
+          error: `Order with associateID '${associateID}' already exists.`,
+        };
+      }
+
+      const newSelectOrderID = freshID();
+      const newSelectOrder: SelectOrder = {
+        _id: newSelectOrderID,
+        associateID,
+        baseQuantity: -1.0,
+        baseUnits: "",
+        childAtomicOrders: [],
+        parentOrders: [],
+      };
+
+      await this.selectOrders.insertOne(newSelectOrder);
+
+      return { selectOrder: newSelectOrderID };
+    } catch (e: unknown) {
+      return {
+        error: `Failed to create SelectOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to create a new AtomicOrder.
+   *
+   * createAtomicOrder (selectOrder: SelectOrder, associateID: ID, quantity: Float, units: String, price: Float): (atomicOrder: AtomicOrder)
+   *
+   * **requires** `selectOrder` exists. No order already exists for `associateID` within this `PurchaseSystem` concept.
+   *
+   * **effects** Creates `atomicOrder` with `associateID`, `quantity`, `units`, `price` as arguments and `parentOrder` set to `selectOrder`.
+   * Adds `atomicOrder` to `selectOrder.childAtomicOrders`. If this is the first AtomicOrder option for `selectOrder` sets
+   * `selectOrder.baseUnits` and `selectOrder.baseQuantity` to `units` and `quantity` respectively, if its a subsequent
+   * then no modification to `selectOrder.baseUnits` and `selectOrder.baseQuantity` is necessary.
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set (set removes duplicates)
+   * of every `parentOrder.rootOrder` within `selectOrder.parentOrders`.
+   */
+  async createAtomicOrder(
+    input: CreateAtomicOrderInput,
+  ): Promise<CreateAtomicOrderOutput> {
+    try {
+      const {
+        selectOrder: selectOrderID,
+        associateID,
+        quantity,
+        units,
+        price,
+      } = input;
+
+      // Requires: `selectOrder` exists.
+      const existingSelectOrder = await this.selectOrders.findOne({
+        _id: selectOrderID,
+      });
+      if (!existingSelectOrder) {
+        return { error: `SelectOrder with ID '${selectOrderID}' not found.` };
+      }
+
+      // Requires: No order already exists for `associateID`.
+      if (await this.findAnyOrderByAssociateID(associateID)) {
+        return {
+          error: `Order with associateID '${associateID}' already exists.`,
+        };
+      }
+
+      const newAtomicOrderID = freshID();
+      const newAtomicOrder: AtomicOrder = {
+        _id: newAtomicOrderID,
+        associateID,
+        quantity,
+        units,
+        price,
+        parentOrder: selectOrderID,
+      };
+
+      await this.atomicOrders.insertOne(newAtomicOrder);
+
+      const updateSelectOrder: UpdateFilter<SelectOrder> = {
+        $push: { childAtomicOrders: newAtomicOrderID },
+      };
+
+      // If this is the first AtomicOrder option for `selectOrder`
+      if (existingSelectOrder.childAtomicOrders.length === 0) {
+        updateSelectOrder.$set = {
+          baseQuantity: quantity,
+          baseUnits: units,
+        };
+      }
+
+      await this.selectOrders.updateOne(
+        { _id: selectOrderID },
+        updateSelectOrder,
+      );
+
+      // Call calculateOptimalPurchase for relevant root orders
+      const rootOrdersToRecalculate = new Set<ID>();
+      for (const parentCompositeOrderID of existingSelectOrder.parentOrders) {
+        const parentCompositeOrder = await this.compositeOrders.findOne({
+          _id: parentCompositeOrderID,
+        });
+        if (parentCompositeOrder) {
+          rootOrdersToRecalculate.add(parentCompositeOrder.rootOrder);
+        }
+      }
+      if (rootOrdersToRecalculate.size > 0) {
+        await this.calculateOptimalPurchase({
+          compositeOrders: Array.from(rootOrdersToRecalculate),
+        });
+      }
+
+      return { atomicOrder: newAtomicOrderID };
+    } catch (e: unknown) {
+      return {
+        error: `Failed to create AtomicOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to delete an AtomicOrder.
+   *
+   * deleteAtomicOrder (selectOrder: SelectOrder, atomicOrder: AtomicOrder)
+   *
+   * **requires** `selectOrder` exists. `atomicOrder` exists and is in `selectOrder.childAtomicOrders`.
+   *
+   * **effects** Removes `atomicOrder` from `selectOrder.childAtomicOrders`. Delete `atomicOrder`.
+   * If `atomicOrder` was the last AtomicOrder in `selectOrder.childAtomicOrders` then sets
+   * `selectOrder.baseQuantity` to -1 and `selectOrder.baseUnits` to "".
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set (set removes duplicates)
+   * of every `parentOrder.rootOrder` within `selectOrder.parentOrders`.
+   */
+  async deleteAtomicOrder(
+    input: DeleteAtomicOrderInput,
+  ): Promise<DeleteAtomicOrderOutput> {
+    try {
+      const { selectOrder: selectOrderID, atomicOrder: atomicOrderID } = input;
+
+      // Requires: `selectOrder` exists.
+      const existingSelectOrder = await this.selectOrders.findOne({
+        _id: selectOrderID,
+      });
+      if (!existingSelectOrder) {
+        return { error: `SelectOrder with ID '${selectOrderID}' not found.` };
+      }
+
+      // Requires: `atomicOrder` exists and is in `selectOrder.childAtomicOrders`.
+      const existingAtomicOrder = await this.atomicOrders.findOne({
+        _id: atomicOrderID,
+      });
+      if (!existingAtomicOrder) {
+        return { error: `AtomicOrder with ID '${atomicOrderID}' not found.` };
+      }
+      if (!existingSelectOrder.childAtomicOrders.includes(atomicOrderID)) {
+        return {
+          error:
+            `AtomicOrder '${atomicOrderID}' is not a child of SelectOrder '${selectOrderID}'.`,
+        };
+      }
+
+      // Remove `atomicOrder` from `selectOrder.childAtomicOrders`.
+      await this.selectOrders.updateOne(
+        { _id: selectOrderID },
+        { $pull: { childAtomicOrders: atomicOrderID } },
+      );
+
+      // Delete `atomicOrder`.
+      await this.atomicOrders.deleteOne({ _id: atomicOrderID });
+
+      // If `atomicOrder` was the last AtomicOrder in `selectOrder.childAtomicOrders`
+      const updatedSelectOrder = await this.selectOrders.findOne({
+        _id: selectOrderID,
+      }); // Re-fetch updated select order
+      if (updatedSelectOrder) {
+        if (updatedSelectOrder.childAtomicOrders.length === 0) {
+          await this.selectOrders.updateOne(
+            { _id: selectOrderID },
+            { $set: { baseQuantity: -1, baseUnits: "" } },
+          );
+        } else if (
+          existingSelectOrder.baseQuantity === existingAtomicOrder.quantity &&
+          existingSelectOrder.baseUnits === existingAtomicOrder.units
+        ) {
+          // If the deleted atomic order was setting the base quantity/units, update them to the next available one
+          const firstRemainingAtomicOrder = await this.atomicOrders.findOne({
+            _id: updatedSelectOrder.childAtomicOrders[0],
+          });
+          if (firstRemainingAtomicOrder) {
+            await this.selectOrders.updateOne(
+              { _id: selectOrderID },
+              {
+                $set: {
+                  baseQuantity: firstRemainingAtomicOrder.quantity,
+                  baseUnits: firstRemainingAtomicOrder.units,
+                },
+              },
+            );
+          } else {
+            // This case should ideally not happen if remainingChildren is not empty, but as a fallback
+            await this.selectOrders.updateOne(
+              { _id: selectOrderID },
+              { $set: { baseQuantity: -1, baseUnits: "" } },
+            );
+          }
+        }
+      }
+
+      // Call calculateOptimalPurchase for relevant root orders
+      const rootOrdersToRecalculate = new Set<ID>();
+      for (const parentCompositeOrderID of existingSelectOrder.parentOrders) {
+        const parentCompositeOrder = await this.compositeOrders.findOne({
+          _id: parentCompositeOrderID,
+        });
+        if (parentCompositeOrder) {
+          rootOrdersToRecalculate.add(parentCompositeOrder.rootOrder);
+        }
+      }
+      if (rootOrdersToRecalculate.size > 0) {
+        await this.calculateOptimalPurchase({
+          compositeOrders: Array.from(rootOrdersToRecalculate),
+        });
+      }
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to delete AtomicOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to update an AtomicOrder's quantity, units, or price.
+   *
+   * updateAtomicOrder (atomicOrder: AtomicOrder, quantity: Float)
+   * updateAtomicOrder (atomicOrder: AtomicOrder, units: String)
+   * updateAtomicOrder (atomicOrder: AtomicOrder, price: Float)
+   *
+   * **requires** `atomicOrder` exists.
+   *
+   * **effects** Updates the respective attribute within `atomicOrder`.
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set (set removes duplicates)
+   * of every `parentOrder.rootOrder` within `atomicOrder.parentOrder.parentOrders`.
+   */
+  async updateAtomicOrder(
+    input:
+      | UpdateAtomicOrderInputQuantity
+      | UpdateAtomicOrderInputUnits
+      | UpdateAtomicOrderInputPrice,
+  ): Promise<UpdateAtomicOrderOutput> {
+    try {
+      const { atomicOrder: atomicOrderID } = input;
+
+      // Requires: `atomicOrder` exists.
+      const existingAtomicOrder = await this.atomicOrders.findOne({
+        _id: atomicOrderID,
+      });
+      if (!existingAtomicOrder) {
+        return { error: `AtomicOrder with ID '${atomicOrderID}' not found.` };
+      }
+
+      const updateFields: Partial<AtomicOrder> = {};
+      if ("quantity" in input) {
+        updateFields.quantity = input.quantity;
+      }
+      if ("units" in input) {
+        updateFields.units = input.units;
+      }
+      if ("price" in input) {
+        updateFields.price = input.price;
+      }
+
+      if (Object.keys(updateFields).length > 0) {
+        await this.atomicOrders.updateOne(
+          { _id: atomicOrderID },
+          { $set: updateFields },
+        );
+
+        // Effects related to SelectOrder base quantity/units if this atomic order was the first one
+        const parentSelectOrder = await this.selectOrders.findOne({
+          _id: existingAtomicOrder.parentOrder,
+        });
+        if (
+          parentSelectOrder &&
+          parentSelectOrder.childAtomicOrders[0] === atomicOrderID
+        ) {
+          const updatedAtomicOrder = await this.atomicOrders.findOne({
+            _id: atomicOrderID,
+          });
+          if (updatedAtomicOrder) {
+            await this.selectOrders.updateOne(
+              { _id: parentSelectOrder._id },
+              {
+                $set: {
+                  baseQuantity: updatedAtomicOrder.quantity,
+                  baseUnits: updatedAtomicOrder.units,
+                },
+              },
+            );
+          }
+        }
+      }
+
+      // Call calculateOptimalPurchase for relevant root orders
+      const rootOrdersToRecalculate = new Set<ID>();
+      const parentSelectOrder = await this.selectOrders.findOne({
+        _id: existingAtomicOrder.parentOrder,
+      });
+      if (parentSelectOrder) {
+        for (const parentCompositeOrderID of parentSelectOrder.parentOrders) {
+          const parentCompositeOrder = await this.compositeOrders.findOne({
+            _id: parentCompositeOrderID,
+          });
+          if (parentCompositeOrder) {
+            rootOrdersToRecalculate.add(parentCompositeOrder.rootOrder);
+          }
+        }
+      }
+      if (rootOrdersToRecalculate.size > 0) {
+        await this.calculateOptimalPurchase({
+          compositeOrders: Array.from(rootOrdersToRecalculate),
+        });
+      }
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to update AtomicOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to create a new CompositeOrder.
+   *
+   * createCompositeOrder (associateID: ID): (compositeOrder: CompositeOrder)
+   *
+   * **requires** No order already exists for `associateID` within this `PurchaseSystem` concept.
+   *
+   * **effects** Creates a new `CompositeOrder` with `associateID`. Initializes `childSelectOrders` to empty,
+   * `childCompositeOrders` to empty, optimalPurchase to empty, `totalCost` to 0.0, `purchased` to `false`,
+   * `parentOrder` to itself (if `parentOrder` is itself then we know we are at root), and `rootOrder` to itself.
+   * Returns the new `CompositeOrder` ID.
+   */
+  async createCompositeOrder(
+    input: CreateCompositeOrderInput,
+  ): Promise<CreateCompositeOrderOutput> {
+    try {
+      const { associateID } = input;
+
+      // Requires: No order already exists for `associateID`.
+      if (await this.findAnyOrderByAssociateID(associateID)) {
+        return {
+          error: `Order with associateID '${associateID}' already exists.`,
+        };
+      }
+
+      const newCompositeOrderID = freshID();
+      const newCompositeOrder: CompositeOrder = {
+        _id: newCompositeOrderID,
+        associateID,
+        childSelectOrders: {},
+        childCompositeOrders: {},
+        optimalPurchase: {},
+        totalCost: 0.0,
+        purchased: false,
+        parentOrder: newCompositeOrderID, // It is its own parent initially (root)
+        rootOrder: newCompositeOrderID, // It is its own root initially
+      };
+
+      await this.compositeOrders.insertOne(newCompositeOrder);
+
+      return { compositeOrder: newCompositeOrderID };
+    } catch (e: unknown) {
+      return {
+        error: `Failed to create CompositeOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to add a SelectOrder to a CompositeOrder.
+   *
+   * addSelectOrderToCompositeOrder (compositeOrder: CompositeOrder, selectOrder: SelectOrder, scaleFactor: Float)
+   *
+   * **requires** `compositeOrder` exists. `selectOrder` exists. `scaleFactor` > 0.
+   *
+   * **effects** Maps `selectOrder` within `compositeOrder.childSelectOrders` to the given `scaleFactor`.
+   * Adds `compositeOrder` to the set `selectOrder.parentOrders`.
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set of just `compositeOrder.rootOrder`.
+   */
+  async addSelectOrderToCompositeOrder(
+    input: AddSelectOrderToCompositeOrderInput,
+  ): Promise<AddSelectOrderToCompositeOrderOutput> {
+    try {
+      const {
+        compositeOrder: compositeOrderID,
+        selectOrder: selectOrderID,
+        scaleFactor,
+      } = input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      // Requires: `selectOrder` exists.
+      const existingSelectOrder = await this.selectOrders.findOne({
+        _id: selectOrderID,
+      });
+      if (!existingSelectOrder) {
+        return { error: `SelectOrder with ID '${selectOrderID}' not found.` };
+      }
+
+      // Requires: `scaleFactor` > 0.
+      if (scaleFactor <= 0) {
+        return { error: "Scale factor must be greater than 0." };
+      }
+
+      // Update `compositeOrder.childSelectOrders`
+      await this.compositeOrders.updateOne(
+        { _id: compositeOrderID },
+        { $set: { [`childSelectOrders.${selectOrderID}`]: scaleFactor } },
+      );
+
+      // Add `compositeOrder` to `selectOrder.parentOrders` (ensure no duplicates)
+      if (!existingSelectOrder.parentOrders.includes(compositeOrderID)) {
+        await this.selectOrders.updateOne(
+          { _id: selectOrderID },
+          { $push: { parentOrders: compositeOrderID } },
+        );
+      }
+
+      // Call `calculateOptimalPurchase` for the root order
+      await this.calculateOptimalPurchase({
+        compositeOrders: [existingCompositeOrder.rootOrder],
+      });
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to add SelectOrder to CompositeOrder: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Action to remove a SelectOrder from a CompositeOrder.
+   *
+   * removeSelectOrderFromCompositeOrder (compositeOrder: CompositeOrder, selectOrder: SelectOrder)
+   *
+   * **requires** `compositeOrder` exists. `selectOrder` exists. `selectOrder` is within `compositeOrder.childSelectOrders`.
+   *
+   * **effects** Removes `selectOrder` from `compositeOrder.childSelectOrders`.
+   * Removes `compositeOrder` from the set `selectOrder.parentOrders`.
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set of just `compositeOrder.rootOrder`.
+   */
+  async removeSelectOrderFromCompositeOrder(
+    input: RemoveSelectOrderFromCompositeOrderInput,
+  ): Promise<RemoveSelectOrderFromCompositeOrderOutput> {
+    try {
+      const { compositeOrder: compositeOrderID, selectOrder: selectOrderID } =
+        input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      // Requires: `selectOrder` exists.
+      const existingSelectOrder = await this.selectOrders.findOne({
+        _id: selectOrderID,
+      });
+      if (!existingSelectOrder) {
+        return { error: `SelectOrder with ID '${selectOrderID}' not found.` };
+      }
+
+      // Requires: `selectOrder` is within `compositeOrder.childSelectOrders`.
+      if (!(selectOrderID in existingCompositeOrder.childSelectOrders)) {
+        return {
+          error:
+            `SelectOrder '${selectOrderID}' is not a child of CompositeOrder '${compositeOrderID}'.`,
+        };
+      }
+
+      // Remove `selectOrder` from `compositeOrder.childSelectOrders`.
+      await this.compositeOrders.updateOne(
+        { _id: compositeOrderID },
+        { $unset: { [`childSelectOrders.${selectOrderID}`]: "" } },
+      );
+
+      // Remove `compositeOrder` from `selectOrder.parentOrders`.
+      await this.selectOrders.updateOne(
+        { _id: selectOrderID },
+        { $pull: { parentOrders: compositeOrderID } },
+      );
+
+      // Call `calculateOptimalPurchase` for the root order
+      await this.calculateOptimalPurchase({
+        compositeOrders: [existingCompositeOrder.rootOrder],
+      });
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to remove SelectOrder from CompositeOrder: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Action to add a Composite sub-order to a parent CompositeOrder.
+   *
+   * addCompositeSubOrder (parentOrder: CompositeOrder, childOrder: CompositeOrder)
+   *
+   * **requires** `parentOrder` exists. `childOrder` exists.
+   * For all `childOrder.childCompositeOrders` and the subsequent CompositeOrder children,
+   * none of which are within `parentOrder.childCompositeOrders` or its subsequent children
+   * (Essentially requires no cycle to be formed).
+   *
+   * **effects** Adds `childOrder` to `parentOrder.childCompositeOrders`.
+   * Sets `childOrder.parentOrder` to `parentOrder` and `childOrder.rootOrder` to `parentOrder.rootOrder`.
+   * Sets all `childOrder.childCompositeOrders` and their subsequent CompositeOrder children to have new root `parentOrder.rootOrder`.
+   * Lastly, calls `calculateOptimalPurchase` for one `parentOrder.rootOrder` afterwards.
+   */
+  async addCompositeSubOrder(
+    input: AddCompositeSubOrderInput,
+  ): Promise<AddCompositeSubOrderOutput> {
+    try {
+      const { parentOrder: parentOrderID, childOrder: childOrderID } = input;
+
+      // Requires: `parentOrder` exists.
+      const existingParentOrder = await this.compositeOrders.findOne({
+        _id: parentOrderID,
+      });
+      if (!existingParentOrder) {
+        return { error: `Parent CompositeOrder '${parentOrderID}' not found.` };
+      }
+
+      // Requires: `childOrder` exists.
+      const existingChildOrder = await this.compositeOrders.findOne({
+        _id: childOrderID,
+      });
+      if (!existingChildOrder) {
+        return { error: `Child CompositeOrder '${childOrderID}' not found.` };
+      }
+
+      // Cannot add a composite order to itself
+      if (parentOrderID === childOrderID) {
+        return { error: "Cannot add a composite order as a child of itself." };
+      }
+
+      // Requires: No cycle to be formed.
+      if (await this.wouldFormCycle(parentOrderID, childOrderID)) {
+        return {
+          error:
+            `Adding CompositeOrder '${childOrderID}' to '${parentOrderID}' would form a cycle.`,
+        };
+      }
+
+      // Add `childOrder` to `parentOrder.childCompositeOrders` (with default scale factor 1.0)
+      await this.compositeOrders.updateOne(
+        { _id: parentOrderID },
+        { $set: { [`childCompositeOrders.${childOrderID}`]: 1.0 } }, // Default scale factor
+      );
+
+      // Set `childOrder.parentOrder` to `parentOrder` and `childOrder.rootOrder` to `parentOrder.rootOrder`.
+      await this.compositeOrders.updateOne(
+        { _id: childOrderID },
+        { $set: { parentOrder: parentOrderID } },
+      );
+
+      // Sets all `childOrder.childCompositeOrders` and their subsequent CompositeOrder children to have new root `parentOrder.rootOrder`.
+      await this.updateRootOrderRecursive(
+        childOrderID,
+        existingParentOrder.rootOrder,
+      );
+
+      // Call `calculateOptimalPurchase` for the root order
+      await this.calculateOptimalPurchase({
+        compositeOrders: [existingParentOrder.rootOrder],
+      });
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to add Composite sub-order: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to remove a Composite sub-order from a parent CompositeOrder.
+   *
+   * removeCompositeSubOrder (parentOrder: CompositeOrder, childOrder: CompositeOrder)
+   *
+   * **requires** `parentOrder` exists. `childOrder` exists and is in `parentOrder.childCompositeOrders`.
+   *
+   * **effects** Removes `childOrder` from `parentOrder.childCompositeOrders`.
+   * Sets `childOrder.parentOrder` and `childOrder.rootOrder` to `childOrder` (itself).
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set of just `parentOrder.rootOrder` and `childOrder` (if different).
+   */
+  async removeCompositeSubOrder(
+    input: RemoveCompositeSubOrderInput,
+  ): Promise<RemoveCompositeSubOrderOutput> {
+    try {
+      const { parentOrder: parentOrderID, childOrder: childOrderID } = input;
+
+      // Requires: `parentOrder` exists.
+      const existingParentOrder = await this.compositeOrders.findOne({
+        _id: parentOrderID,
+      });
+      if (!existingParentOrder) {
+        return { error: `Parent CompositeOrder '${parentOrderID}' not found.` };
+      }
+
+      // Requires: `childOrder` exists and is in `parentOrder.childCompositeOrders`.
+      const existingChildOrder = await this.compositeOrders.findOne({
+        _id: childOrderID,
+      });
+      if (!existingChildOrder) {
+        return { error: `Child CompositeOrder '${childOrderID}' not found.` };
+      }
+      if (!(childOrderID in existingParentOrder.childCompositeOrders)) {
+        return {
+          error:
+            `Child CompositeOrder '${childOrderID}' is not a child of Parent CompositeOrder '${parentOrderID}'.`,
+        };
+      }
+
+      // Remove `childOrder` from `parentOrder.childCompositeOrders`.
+      await this.compositeOrders.updateOne(
+        { _id: parentOrderID },
+        { $unset: { [`childCompositeOrders.${childOrderID}`]: "" } },
+      );
+
+      // Sets `childOrder.parentOrder` and `childOrder.rootOrder` to `childOrder` (itself).
+      // Also update its children recursively.
+      await this.compositeOrders.updateOne(
+        { _id: childOrderID },
+        { $set: { parentOrder: childOrderID } },
+      );
+      await this.updateRootOrderRecursive(childOrderID, childOrderID);
+
+      // Call `calculateOptimalPurchase` for relevant root orders
+      const rootOrdersToRecalculate = new Set<ID>();
+      rootOrdersToRecalculate.add(existingParentOrder.rootOrder);
+      if (existingChildOrder.rootOrder !== childOrderID) { // If child was part of a different tree, its new root is itself
+        rootOrdersToRecalculate.add(childOrderID);
+      }
+
+      await this.calculateOptimalPurchase({
+        compositeOrders: Array.from(rootOrdersToRecalculate),
+      });
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to remove Composite sub-order: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Action to update the scale factor of a child order (Select or Composite) within a parent CompositeOrder.
+   *
+   * updateSubOrderScaleFactor (parentOrder: CompositeOrder, childOrder: (SelectOrder | CompositeOrder), newScaleFactor: Float)
+   *
+   * **requires** `parentOrder` exists. `childOrder` exists and is in `parentOrder.childCompositeOrders` or in `parentOrder.childSelectOrders`.
+   * `newScaleFactor` > 0.
+   *
+   * **effects** Maps `childOrder` within `parentOrder.childCompositeOrders` or `parentOrder.childSelectOrders`
+   * (depending on what type child is) to `newScaleFactor`.
+   * Lastly, calls `calculateOptimalPurchase` by passing in the set of just `parentOrder.rootOrder`.
+   */
+  async updateSubOrderScaleFactor(
+    input: UpdateSubOrderScaleFactorInput,
+  ): Promise<UpdateSubOrderScaleFactorOutput> {
+    try {
+      const {
+        parentOrder: parentOrderID,
+        childOrder: childOrderID,
+        newScaleFactor,
+      } = input;
+
+      // Requires: `parentOrder` exists.
+      const existingParentOrder = await this.compositeOrders.findOne({
+        _id: parentOrderID,
+      });
+      if (!existingParentOrder) {
+        return { error: `Parent CompositeOrder '${parentOrderID}' not found.` };
+      }
+
+      // Requires: `childOrder` exists.
+      const existingChildOrder = await this.findAnyOrderById(childOrderID);
+      if (!existingChildOrder) {
+        return { error: `Child Order '${childOrderID}' not found.` };
+      }
+
+      // Requires: `newScaleFactor` > 0.
+      if (newScaleFactor <= 0) {
+        return { error: "New scale factor must be greater than 0." };
+      }
+
+      let updateField: string | null = null;
+      if (childOrderID in existingParentOrder.childSelectOrders) {
+        updateField = `childSelectOrders.${childOrderID}`;
+      } else if (childOrderID in existingParentOrder.childCompositeOrders) {
+        updateField = `childCompositeOrders.${childOrderID}`;
+      } else {
+        return {
+          error:
+            `Child Order '${childOrderID}' is not a direct child of CompositeOrder '${parentOrderID}'.`,
+        };
+      }
+
+      // Update the scale factor
+      await this.compositeOrders.updateOne(
+        { _id: parentOrderID },
+        { $set: { [updateField]: newScaleFactor } },
+      );
+
+      // Call `calculateOptimalPurchase` for the root order
+      await this.calculateOptimalPurchase({
+        compositeOrders: [existingParentOrder.rootOrder],
+      });
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to update sub-order scale factor: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Action to delete a CompositeOrder.
+   *
+   * deleteCompositeOrder (compositeOrder: CompositeOrder)
+   *
+   * **requires** `compositeOrder` exists.
+   *
+   * **effects** Calls removeSelectOrderFromCompositeOrder for every SelectOrder in `compositeOrder.childSelectOrders`.
+   * Calls with parent being `compositeOrder.parentOrder`.
+   * Recursively calls deleteCompositeOrder for every CompositeOrder in `compositeOrder.childCompositeOrders`.
+   * Calls `calculateOptimalPurchase` by passing in the set of just `compositeOrder.rootOrder`.
+   * Finally, removes `compositeOrder` from the state.
+   */
+  async deleteCompositeOrder(
+    input: DeleteCompositeOrderInput,
+  ): Promise<DeleteCompositeOrderOutput> {
+    try {
+      const { compositeOrder: compositeOrderID } = input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      const parentOfDeleted = existingCompositeOrder.parentOrder;
+
+      // Handle children: remove SelectOrders first
+      for (
+        const selectOrderID of Object.keys(
+          existingCompositeOrder.childSelectOrders,
+        )
+      ) {
+        await this.removeSelectOrderFromCompositeOrder({
+          compositeOrder: compositeOrderID,
+          selectOrder: selectOrderID as ID,
+        });
+      }
+
+      // Recursively delete child CompositeOrders
+      // Use a temporary array to avoid modifying the map during iteration
+      const childCompositeOrderIDs = Object.keys(
+        existingCompositeOrder.childCompositeOrders,
+      );
+      for (const childCompositeOrderID of childCompositeOrderIDs) {
+        await this.deleteCompositeOrder({
+          compositeOrder: childCompositeOrderID as ID,
+        });
+      }
+
+      // If this order has a parent, remove it from the parent's children map
+      if (parentOfDeleted !== compositeOrderID) { // Not a root itself
+        await this.compositeOrders.updateOne(
+          { _id: parentOfDeleted },
+          { $unset: { [`childCompositeOrders.${compositeOrderID}`]: "" } },
+        );
+      }
+
+      // Finally, remove `compositeOrder` from the state.
+      await this.compositeOrders.deleteOne({ _id: compositeOrderID });
+
+      // Call `calculateOptimalPurchase` for the affected root order(s)
+      const rootOrdersToRecalculate = new Set<ID>();
+      if (parentOfDeleted !== compositeOrderID) { // If it had a parent, recalculate its parent's root
+        const parentOrderDoc = await this.compositeOrders.findOne({
+          _id: parentOfDeleted,
+        });
+        if (parentOrderDoc) {
+          rootOrdersToRecalculate.add(parentOrderDoc.rootOrder);
+        }
+      } else {
+        // If the deleted order was a root itself, no other trees directly depend on it
+        // and its own root is now gone. No recalculation needed for other roots *due to this deletion*.
+        // The children it detached will have their roots updated by removeCompositeSubOrder's
+        // recursive updateRootOrderRecursive call to point to themselves.
+      }
+      if (rootOrdersToRecalculate.size > 0) {
+        await this.calculateOptimalPurchase({
+          compositeOrders: Array.from(rootOrdersToRecalculate),
+        });
+      }
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to delete CompositeOrder: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Action to calculate the optimal purchase for a set of CompositeOrders.
+   * This is a complex action that traverses the composite order tree, aggregates requirements,
+   * finds optimal atomic order combinations, and propagates costs and optimal purchases upwards.
+   *
+   * calculateOptimalPurchase (compositeOrders: Set of CompositeOrder)
+   *
+   * **requires** Every CompositeOrder in `compositeOrders` exists.
+   *
+   * **effects** Don't add to state but for this action keep track of `processedRootNodes`.
+   * For each `compositeOrder` in the passed in set of `compositeOrders`:
+   * If `compositeOrder.purchased`, skip it.
+   * If `compositeOrder.rootOrder` is in `processedRootNodes`, skip it.
+   * Now knowing we have a tree that has not been purchased or already calculated during this action, we continue.
+   * From the `compositeOrder.rootOrder` we propagate down multiplying the scaling factors,
+   * until we have gone through every CompositeOrder in the tree and now have a map of SelectOrder to Float
+   * for every SelectOrder we need to purchase for this `compositeOrder.rootOrder`
+   * (if SelectOrder doesn't have an AtomicOrder option, have cost for this SelectOrder during calculations be zero).
+   * For each individual SelectOrder now knowing its total scale factor,
+   * we select the optimal AtomicOrder that when purchased in multiples can buy at least the necessary quantity for the least amount of money.
+   * Now knowing all of the optimal AtomicOrders, we use those to propagate up from the leaf CompositeOrders
+   * calculating their costs and setting the `compositeOrder.totalCost` and `compositeOrder.optimalPurchase` map for every CompositeOrder.
+   */
+  async calculateOptimalPurchase(
+    input: CalculateOptimalPurchaseInput,
+  ): Promise<CalculateOptimalPurchaseOutput> {
+    try {
+      const { compositeOrders: compositeOrderIDs } = input;
+      const processedRootNodes = new Set<ID>();
+
+      for (const compositeOrderID of compositeOrderIDs) {
+        const initialCompositeOrder = await this.compositeOrders.findOne({
+          _id: compositeOrderID,
+        });
+        if (!initialCompositeOrder) {
+          console.warn(
+            `calculateOptimalPurchase: CompositeOrder with ID '${compositeOrderID}' not found. Skipping.`,
+          );
+          continue;
+        }
+
+        if (initialCompositeOrder.purchased) {
+          continue; // Skip if already purchased
+        }
+
+        const rootOrderID = initialCompositeOrder.rootOrder;
+        if (processedRootNodes.has(rootOrderID)) {
+          continue; // Already processed this root tree in this call
+        }
+        processedRootNodes.add(rootOrderID);
+
+        const allCompositeOrdersInTree = new Map<ID, CompositeOrder>();
+        const queueForTreeTraversal: ID[] = [rootOrderID];
+        const visitedForTreeTraversal = new Set<ID>();
+
+        while (queueForTreeTraversal.length > 0) {
+          const currentId = queueForTreeTraversal.shift()!;
+          if (visitedForTreeTraversal.has(currentId)) continue;
+          visitedForTreeTraversal.add(currentId);
+
+          const comp = await this.compositeOrders.findOne({ _id: currentId });
+          if (comp) {
+            allCompositeOrdersInTree.set(currentId, comp);
+            for (const childId of Object.keys(comp.childCompositeOrders)) {
+              queueForTreeTraversal.push(childId as ID);
+            }
+          }
+        }
+
+        // Topological sort for bottom-up processing
+        const compositeOrderProcessQueue: ID[] = [];
+        const inDegree = new Map<ID, number>(); // Number of child composite orders it depends on
+
+        for (const compositeID of allCompositeOrdersInTree.keys()) {
+          let dependencies = 0;
+          const comp = allCompositeOrdersInTree.get(compositeID)!;
+          dependencies = Object.keys(comp.childCompositeOrders).length;
+          inDegree.set(compositeID, dependencies);
+          if (dependencies === 0) { // Leaf composite order (no composite children)
+            compositeOrderProcessQueue.push(compositeID);
+          }
+        }
+
+        const calculatedCompositeOrders = new Map<
+          ID,
+          { cost: number; optimal: Record<ID, number> }
+        >();
+
+        while (compositeOrderProcessQueue.length > 0) {
+          const currentCompositeID = compositeOrderProcessQueue.shift()!;
+          const currentComposite = allCompositeOrdersInTree.get(
+            currentCompositeID,
+          );
+          if (!currentComposite) continue;
+
+          let currentCompositeTotalCost = 0;
+          const currentCompositeOptimalPurchase: Record<ID, number> = {};
+          const localAggregatedSelectOrderRequirements: Map<
+            ID,
+            { quantity: number; units: string }
+          > = new Map();
+
+          // Process direct child SelectOrders
+          for (const selectID in currentComposite.childSelectOrders) {
+            const selectScale = currentComposite.childSelectOrders[selectID];
+            const selectOrderDoc = await this.selectOrders.findOne({
+              _id: selectID as ID,
+            });
+            if (!selectOrderDoc || selectOrderDoc.baseQuantity === -1) {
+              continue; // SelectOrder without atomic options or uninitialized
+            }
+            const totalRequiredQuantity = selectScale *
+              selectOrderDoc.baseQuantity;
+            const existingRequirement = localAggregatedSelectOrderRequirements
+              .get(selectID as ID);
+            if (existingRequirement) {
+              existingRequirement.quantity += totalRequiredQuantity;
+              localAggregatedSelectOrderRequirements.set(
+                selectID as ID,
+                existingRequirement,
+              );
+            } else {
+              localAggregatedSelectOrderRequirements.set(selectID as ID, {
+                quantity: totalRequiredQuantity,
+                units: selectOrderDoc.baseUnits,
+              });
+            }
+          }
+
+          // For each local SelectOrder requirement, find optimal AtomicOrder
+          for (
+            const [selectOrderID, required]
+              of localAggregatedSelectOrderRequirements.entries()
+          ) {
+            const selectOrderDoc = await this.selectOrders.findOne({
+              _id: selectOrderID,
+            });
+            if (!selectOrderDoc) continue;
+
+            let bestAtomicOption: AtomicOrder | null = null;
+            let minCostForSelectOrder = Infinity;
+            let optimalUnitsToBuy = 0;
+
+            const atomicOptions = await this.atomicOrders
+              .find({ _id: { $in: selectOrderDoc.childAtomicOrders } })
+              .toArray();
+
+            for (const atomicOption of atomicOptions) {
+              if (atomicOption.quantity <= 0) continue; // Avoid division by zero or invalid options
+
+              // Basic unit consistency check. A full system would need unit conversion.
+              if (atomicOption.units !== required.units) {
+                console.warn(
+                  `Unit mismatch for SelectOrder '${selectOrderID}' (req: ${required.units}) and AtomicOrder '${atomicOption._id}' (prov: ${atomicOption.units}). This may lead to inaccurate cost calculations.`,
+                );
+                continue;
+              }
+
+              const numUnitsToBuy = Math.ceil(
+                required.quantity / atomicOption.quantity,
+              );
+              const currentOptionCost = numUnitsToBuy * atomicOption.price;
+
+              if (currentOptionCost < minCostForSelectOrder) {
+                minCostForSelectOrder = currentOptionCost;
+                bestAtomicOption = atomicOption;
+                optimalUnitsToBuy = numUnitsToBuy;
+              }
+            }
+
+            if (bestAtomicOption) {
+              currentCompositeOptimalPurchase[bestAtomicOption._id] =
+                (currentCompositeOptimalPurchase[bestAtomicOption._id] || 0) +
+                optimalUnitsToBuy;
+              currentCompositeTotalCost += minCostForSelectOrder;
+            }
+          }
+
+          // Add contributions from child CompositeOrders that have already been calculated
+          for (const childCompID in currentComposite.childCompositeOrders) {
+            const childScale =
+              currentComposite.childCompositeOrders[childCompID];
+            const childCalculated = calculatedCompositeOrders.get(
+              childCompID as ID,
+            );
+            if (childCalculated) {
+              currentCompositeTotalCost += childCalculated.cost * childScale;
+              for (const atomicID in childCalculated.optimal) {
+                currentCompositeOptimalPurchase[atomicID] =
+                  (currentCompositeOptimalPurchase[atomicID] || 0) +
+                  (childCalculated.optimal[atomicID] * childScale);
+              }
+            } else {
+              // This implies a topological sort error or missing child. Should not happen if inDegree is correct.
+              console.error(
+                `Error: Child CompositeOrder '${childCompID}' not calculated before parent '${currentCompositeID}'.`,
+              );
+            }
+          }
+
+          // Store calculated values for this composite order
+          calculatedCompositeOrders.set(currentCompositeID, {
+            cost: currentCompositeTotalCost,
+            optimal: currentCompositeOptimalPurchase,
+          });
+
+          // Update MongoDB for this composite order
+          await this.compositeOrders.updateOne(
+            { _id: currentCompositeID },
+            {
+              $set: {
+                totalCost: currentCompositeTotalCost,
+                optimalPurchase: currentCompositeOptimalPurchase,
+              },
+            },
+          );
+
+          // Decrease in-degree of parent orders and enqueue if they become ready
+          for (const parentID of allCompositeOrdersInTree.keys()) {
+            const parentComp = allCompositeOrdersInTree.get(parentID)!;
+            if (currentCompositeID in parentComp.childCompositeOrders) {
+              const newInDegree = (inDegree.get(parentID) || 0) - 1;
+              inDegree.set(parentID, newInDegree);
+              if (newInDegree === 0) {
+                compositeOrderProcessQueue.push(parentID);
+              }
+            }
+          }
+        }
+      } // End of outer loop for compositeOrderIDs
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to calculate optimal purchase: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Action to mark a CompositeOrder and its children as purchased.
+   *
+   * purchaseOrder (compositeOrder: CompositeOrder)
+   *
+   * **requires** `compositeOrder` exists. `compositeOrder.rootOrder` is itself. `compositeOrder.purchased` is false.
+   * All `SelectOrder`s within the tree have at least one AtomicOrder option.
+   *
+   * **effects** Recursively sets `purchased` to `true` for all CompositeOrders rooted from `compositeOrder`.
+   */
+  async purchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrderOutput> {
+    try {
+      const { compositeOrder: compositeOrderID } = input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      // Requires: `compositeOrder.rootOrder` is itself.
+      if (existingCompositeOrder.rootOrder !== compositeOrderID) {
+        return {
+          error:
+            `CompositeOrder '${compositeOrderID}' is not a root order. Only root orders can be purchased.`,
+        };
+      }
+
+      // Requires: `compositeOrder.purchased` is false.
+      if (existingCompositeOrder.purchased) {
+        return {
+          error:
+            `CompositeOrder '${compositeOrderID}' has already been purchased.`,
+        };
+      }
+
+      // Requires: All `SelectOrder`s within the tree have at least one AtomicOrder option.
+      // A simplified check: if totalCost is 0 and there are items in optimalPurchase,
+      // it might indicate unfulfillable requirements. If optimalPurchase is empty,
+      // it simply means nothing needs to be purchased (e.g., an empty recipe).
+      // If totalCost is 0 but optimalPurchase is not empty, it's a suspicious state indicating failed optimization.
+      if (
+        existingCompositeOrder.totalCost === 0 &&
+        Object.keys(existingCompositeOrder.optimalPurchase).length > 0
+      ) {
+        return {
+          error:
+            `CompositeOrder '${compositeOrderID}' cannot be purchased; some required SelectOrders may lack valid AtomicOrder options or lead to zero cost purchases with positive quantities.`,
+        };
+      }
+
+      // Recursively sets `purchased` to `true` for all CompositeOrders rooted from `compositeOrder`.
+      const queue: ID[] = [compositeOrderID];
+      const visited = new Set<ID>();
+
+      while (queue.length > 0) {
+        const currentID = queue.shift()!;
+        if (visited.has(currentID)) continue;
+        visited.add(currentID);
+
+        await this.compositeOrders.updateOne(
+          { _id: currentID },
+          { $set: { purchased: true } },
+        );
+
+        const currentComposite = await this.compositeOrders.findOne({
+          _id: currentID,
+        });
+        if (currentComposite) {
+          for (
+            const childID of Object.keys(currentComposite.childCompositeOrders)
+          ) {
+            if (!visited.has(childID as ID)) {
+              queue.push(childID as ID);
+            }
+          }
+        }
+      }
+
+      return {};
+    } catch (e: unknown) {
+      return { error: `Failed to purchase order: ${this.getErrorMessage(e)}` };
+    }
+  }
+
+  /* Queries */
+
+  /**
+   * Query to get any order (Atomic, Select, or Composite) by its associateID.
+   *
+   * _getOrderByAssociateID (associateID: ID): (order: (AtomicOrder | SelectOrder | CompositeOrder))
+   *
+   * **requires** Order exists with `associateID`.
+   *
+   * **effects** Returns the `order` associated with that ID.
+   */
+  async _getOrderByAssociateID(
+    input: GetOrderByAssociateIDInput,
+  ): Promise<GetOrderByAssociateIDOutput> {
+    try {
+      const { associateID } = input;
+      const order = await this.findAnyOrderByAssociateID(associateID);
+
+      if (!order) {
+        return { error: `No order found with associateID '${associateID}'.` };
+      }
+
+      return [{ order }];
+    } catch (e: unknown) {
+      return {
+        error: `Failed to retrieve order by associateID: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Query to get the optimal purchase map for a CompositeOrder.
+   *
+   * _getOptimalPurchase (compositeOrder: CompositeOrder): (optimalPurchase: Map of AtomicOrder to Int)
+   *
+   * **requires** `compositeOrder` exists.
+   *
+   * **effects** Returns `compositeOrder.optimalPurchase`.
+   */
+  async _getOptimalPurchase(
+    input: GetOptimalPurchaseInput,
+  ): Promise<GetOptimalPurchaseOutput> {
+    try {
+      const { compositeOrder: compositeOrderID } = input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      return [{ optimalPurchase: existingCompositeOrder.optimalPurchase }];
+    } catch (e: unknown) {
+      return {
+        error: `Failed to retrieve optimal purchase: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+
+  /**
+   * Query to get the total cost of a CompositeOrder.
+   *
+   * _getOrderCost (compositeOrder: CompositeOrder): (totalCost: Float)
+   *
+   * **requires** `compositeOrder` exists.
+   *
+   * **effects** Returns the `totalCost` of the `compositeOrder`.
+   */
+  async _getOrderCost(input: GetOrderCostInput): Promise<GetOrderCostOutput> {
+    try {
+      const { compositeOrder: compositeOrderID } = input;
+
+      // Requires: `compositeOrder` exists.
+      const existingCompositeOrder = await this.compositeOrders.findOne({
+        _id: compositeOrderID,
+      });
+      if (!existingCompositeOrder) {
+        return {
+          error: `CompositeOrder with ID '${compositeOrderID}' not found.`,
+        };
+      }
+
+      return [{ totalCost: existingCompositeOrder.totalCost }];
+    } catch (e: unknown) {
+      return {
+        error: `Failed to retrieve order cost: ${this.getErrorMessage(e)}`,
+      };
+    }
+  }
+}
+
+```
+
+```typescript
+
+  /**
+   * Action to calculate the optimal purchase for a set of CompositeOrders.
+   * This is a complex action that traverses the composite order tree, aggregates requirements,
+   * finds optimal atomic order combinations, and propagates costs and optimal purchases upwards.
+   *
+   * calculateOptimalPurchase (compositeOrders: Set of CompositeOrder)
+   *
+   * **requires** Every CompositeOrder in `compositeOrders` exists.
+   *
+   * **effects** Don't add to state but for this action keep track of `processedRootNodes`.
+   * For each `compositeOrder` in the passed in set of `compositeOrders`:
+   * If `compositeOrder.purchased`, skip it.
+   * If `compositeOrder.rootOrder` is in `processedRootNodes`, skip it.
+   * Now knowing we have a tree that has not been purchased or already calculated during this action, we continue.
+   * From the `compositeOrder.rootOrder` we propagate down multiplying the scaling factors,
+   * until we have gone through every CompositeOrder in the tree and now have a map of SelectOrder to Float
+   * for every SelectOrder we need to purchase for this `compositeOrder.rootOrder`
+   * (if SelectOrder doesn't have an AtomicOrder option, have cost for this SelectOrder during calculations be zero).
+   * For each individual SelectOrder now knowing its total scale factor,
+   * we select the optimal AtomicOrder that when purchased in multiples can buy at least the necessary quantity for the least amount of money.
+   * Now knowing all of the optimal AtomicOrders, we use those to propagate up from the leaf CompositeOrders
+   * calculating their costs and setting the `compositeOrder.totalCost` and `compositeOrder.optimalPurchase` map for every CompositeOrder.
+   */
+  async calculateOptimalPurchase(
+    input: CalculateOptimalPurchaseInput,
+  ): Promise<CalculateOptimalPurchaseOutput> {
+    try {
+      const { compositeOrders: compositeOrderIDs } = input;
+      const processedRootNodes = new Set<ID>();
+
+      for (const compositeOrderID of compositeOrderIDs) {
+        const initialCompositeOrder = await this.compositeOrders.findOne({
+          _id: compositeOrderID,
+        });
+        if (!initialCompositeOrder) {
+          console.warn(
+            `calculateOptimalPurchase: CompositeOrder with ID '${compositeOrderID}' not found. Skipping.`,
+          );
+          continue;
+        }
+
+        if (initialCompositeOrder.purchased) {
+          continue; // Skip if already purchased
+        }
+
+        const rootOrderID = initialCompositeOrder.rootOrder;
+        if (processedRootNodes.has(rootOrderID)) {
+          continue; // Already processed this root tree in this call
+        }
+        processedRootNodes.add(rootOrderID);
+
+        const allCompositeOrdersInTree = new Map<ID, CompositeOrder>();
+        const queueForTreeTraversal: ID[] = [rootOrderID];
+        const visitedForTreeTraversal = new Set<ID>();
+
+        while (queueForTreeTraversal.length > 0) {
+          const currentId = queueForTreeTraversal.shift()!;
+          if (visitedForTreeTraversal.has(currentId)) continue;
+          visitedForTreeTraversal.add(currentId);
+
+          const comp = await this.compositeOrders.findOne({ _id: currentId });
+          if (comp) {
+            allCompositeOrdersInTree.set(currentId, comp);
+            for (const childId of Object.keys(comp.childCompositeOrders)) {
+              queueForTreeTraversal.push(childId as ID);
+            }
+          }
+        }
+
+        // Topological sort for bottom-up processing
+        const compositeOrderProcessQueue: ID[] = [];
+        const inDegree = new Map<ID, number>(); // Number of child composite orders it depends on
+
+        for (const compositeID of allCompositeOrdersInTree.keys()) {
+          let dependencies = 0;
+          const comp = allCompositeOrdersInTree.get(compositeID)!;
+          dependencies = Object.keys(comp.childCompositeOrders).length;
+          inDegree.set(compositeID, dependencies);
+          if (dependencies === 0) { // Leaf composite order (no composite children)
+            compositeOrderProcessQueue.push(compositeID);
+          }
+        }
+
+        const calculatedCompositeOrders = new Map<
+          ID,
+          { cost: number; optimal: Record<ID, number> }
+        >();
+
+        while (compositeOrderProcessQueue.length > 0) {
+          const currentCompositeID = compositeOrderProcessQueue.shift()!;
+          const currentComposite = allCompositeOrdersInTree.get(
+            currentCompositeID,
+          );
+          if (!currentComposite) continue;
+
+          let currentCompositeTotalCost = 0;
+          const currentCompositeOptimalPurchase: Record<ID, number> = {};
+          const localAggregatedSelectOrderRequirements: Map<
+            ID,
+            { quantity: number; units: string }
+          > = new Map();
+
+          // Process direct child SelectOrders
+          for (const selectID in currentComposite.childSelectOrders) {
+            const selectScale = currentComposite.childSelectOrders[selectID];
+            const selectOrderDoc = await this.selectOrders.findOne({
+              _id: selectID as ID,
+            });
+            if (!selectOrderDoc || selectOrderDoc.baseQuantity === -1) {
+              continue; // SelectOrder without atomic options or uninitialized
+            }
+            const totalRequiredQuantity = selectScale *
+              selectOrderDoc.baseQuantity;
+            const existingRequirement = localAggregatedSelectOrderRequirements
+              .get(selectID as ID);
+            if (existingRequirement) {
+              existingRequirement.quantity += totalRequiredQuantity;
+              localAggregatedSelectOrderRequirements.set(
+                selectID as ID,
+                existingRequirement,
+              );
+            } else {
+              localAggregatedSelectOrderRequirements.set(selectID as ID, {
+                quantity: totalRequiredQuantity,
+                units: selectOrderDoc.baseUnits,
+              });
+            }
+          }
+
+          // For each local SelectOrder requirement, find optimal AtomicOrder
+          for (
+            const [selectOrderID, required]
+              of localAggregatedSelectOrderRequirements.entries()
+          ) {
+            const selectOrderDoc = await this.selectOrders.findOne({
+              _id: selectOrderID,
+            });
+            if (!selectOrderDoc) continue;
+
+            let bestAtomicOption: AtomicOrder | null = null;
+            let minCostForSelectOrder = Infinity;
+            let optimalUnitsToBuy = 0;
+
+            const atomicOptions = await this.atomicOrders
+              .find({ _id: { $in: selectOrderDoc.childAtomicOrders } })
+              .toArray();
+
+            for (const atomicOption of atomicOptions) {
+              if (atomicOption.quantity <= 0) continue; // Avoid division by zero or invalid options
+
+              // Basic unit consistency check. A full system would need unit conversion.
+              if (atomicOption.units !== required.units) {
+                console.warn(
+                  `Unit mismatch for SelectOrder '${selectOrderID}' (req: ${required.units}) and AtomicOrder '${atomicOption._id}' (prov: ${atomicOption.units}). This may lead to inaccurate cost calculations.`,
+                );
+                continue;
+              }
+
+              const numUnitsToBuy = Math.ceil(
+                required.quantity / atomicOption.quantity,
+              );
+              const currentOptionCost = numUnitsToBuy * atomicOption.price;
+
+              if (currentOptionCost < minCostForSelectOrder) {
+                minCostForSelectOrder = currentOptionCost;
+                bestAtomicOption = atomicOption;
+                optimalUnitsToBuy = numUnitsToBuy;
+              }
+            }
+
+            if (bestAtomicOption) {
+              currentCompositeOptimalPurchase[bestAtomicOption._id] =
+                (currentCompositeOptimalPurchase[bestAtomicOption._id] || 0) +
+                optimalUnitsToBuy;
+              currentCompositeTotalCost += minCostForSelectOrder;
+            }
+          }
+
+          // Add contributions from child CompositeOrders that have already been calculated
+          for (const childCompID in currentComposite.childCompositeOrders) {
+            const childScale =
+              currentComposite.childCompositeOrders[childCompID];
+            const childCalculated = calculatedCompositeOrders.get(
+              childCompID as ID,
+            );
+            if (childCalculated) {
+              currentCompositeTotalCost += childCalculated.cost * childScale;
+              for (const atomicID in childCalculated.optimal) {
+                currentCompositeOptimalPurchase[atomicID] =
+                  (currentCompositeOptimalPurchase[atomicID] || 0) +
+                  (childCalculated.optimal[atomicID] * childScale);
+              }
+            } else {
+              // This implies a topological sort error or missing child. Should not happen if inDegree is correct.
+              console.error(
+                `Error: Child CompositeOrder '${childCompID}' not calculated before parent '${currentCompositeID}'.`,
+              );
+            }
+          }
+
+          // Store calculated values for this composite order
+          calculatedCompositeOrders.set(currentCompositeID, {
+            cost: currentCompositeTotalCost,
+            optimal: currentCompositeOptimalPurchase,
+          });
+
+          // Update MongoDB for this composite order
+          await this.compositeOrders.updateOne(
+            { _id: currentCompositeID },
+            {
+              $set: {
+                totalCost: currentCompositeTotalCost,
+                optimalPurchase: currentCompositeOptimalPurchase,
+              },
+            },
+          );
+
+          // Decrease in-degree of parent orders and enqueue if they become ready
+          for (const parentID of allCompositeOrdersInTree.keys()) {
+            const parentComp = allCompositeOrdersInTree.get(parentID)!;
+            if (currentCompositeID in parentComp.childCompositeOrders) {
+              const newInDegree = (inDegree.get(parentID) || 0) - 1;
+              inDegree.set(parentID, newInDegree);
+              if (newInDegree === 0) {
+                compositeOrderProcessQueue.push(parentID);
+              }
+            }
+          }
+        }
+      } // End of outer loop for compositeOrderIDs
+
+      return {};
+    } catch (e: unknown) {
+      return {
+        error: `Failed to calculate optimal purchase: ${
+          this.getErrorMessage(e)
+        }`,
+      };
+    }
+  }
+```

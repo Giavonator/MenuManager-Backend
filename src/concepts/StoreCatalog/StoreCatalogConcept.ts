@@ -8,8 +8,6 @@ const PREFIX = "StoreCatalog" + ".";
 // Generic types of this concept
 type Item = ID;
 type PurchaseOption = ID;
-type AtomicOrder = ID; // From Concept spec, refers to generic type AtomicOrder
-type SelectOrder = ID; // From Concept spec, refers to generic type SelectOrder
 
 // --- Action Input/Output Types ---
 
@@ -52,18 +50,12 @@ type UpdatePurchaseOptionStoreInput = {
   purchaseOption: PurchaseOption;
   store: string;
 };
-// updatePurchaseOption (purchaseOption: PurchaseOption, order: Order) - interpreted as AtomicOrder from generic types
-type UpdatePurchaseOptionAtomicOrderInput = {
-  purchaseOption: PurchaseOption;
-  atomicOrder: AtomicOrder;
-};
 
 type UpdatePurchaseOptionInput =
   | UpdatePurchaseOptionQuantityInput
   | UpdatePurchaseOptionUnitsInput
   | UpdatePurchaseOptionPriceInput
-  | UpdatePurchaseOptionStoreInput
-  | UpdatePurchaseOptionAtomicOrderInput;
+  | UpdatePurchaseOptionStoreInput;
 type UpdatePurchaseOptionOutput = Result<Empty>;
 
 // removePurchaseOption (item: Item, purchaseOption: PurchaseOption)
@@ -81,17 +73,6 @@ type RemoveItemNameOutput = Result<Empty>;
 // confirmPurchaseOption (purchaseOption: PurchaseOption)
 type ConfirmPurchaseOptionInput = { purchaseOption: PurchaseOption };
 type ConfirmPurchaseOptionOutput = Result<Empty>;
-
-// addPurchaseOptionOrder (purchaseOption: PurchaseOption, atomicOrder: AtomicOrder) - Custom action in code
-type AddPurchaseOptionOrderInput = {
-  purchaseOption: PurchaseOption;
-  atomicOrder: AtomicOrder;
-};
-type AddPurchaseOptionOrderOutput = Result<Empty>;
-
-// addItemOrder (item: Item, selectOrder: SelectOrder) - Custom action in code
-type AddItemOrderInput = { item: Item; selectOrder: SelectOrder };
-type AddItemOrderOutput = Result<Empty>;
 
 // --- Query Input/Output Types ---
 
@@ -139,7 +120,6 @@ interface ItemDoc {
   _id: Item;
   names: string[];
   purchaseOptions: PurchaseOption[];
-  selectOrderId?: SelectOrder;
 }
 
 /**
@@ -159,7 +139,6 @@ interface PurchaseOptionDoc {
   units: string;
   price: number;
   confirmed: boolean;
-  atomicOrderId?: AtomicOrder;
 }
 
 export default class StoreCatalogConcept {
@@ -285,8 +264,6 @@ export default class StoreCatalogConcept {
       update.price = args.price;
     } else if ("store" in args) {
       update.store = args.store;
-    } else if ("atomicOrder" in args) {
-      update.atomicOrderId = args.atomicOrder;
     }
 
     const result = await this.purchaseOptions.updateOne(
@@ -408,48 +385,6 @@ export default class StoreCatalogConcept {
     await this.purchaseOptions.updateOne(
       { _id: purchaseOption },
       { $set: { confirmed: true } },
-    );
-    return {};
-  }
-
-  /**
-   * addPurchaseOptionOrder (purchaseOption: PurchaseOption, atomicOrder: AtomicOrder)
-   * **requires** `purchaseOption` exists.
-   * **effects** Sets `purchaseOption.atomicOrderId` to `atomicOrder`.
-   */
-  async addPurchaseOptionOrder(
-    { purchaseOption, atomicOrder }: AddPurchaseOptionOrderInput,
-  ): Promise<AddPurchaseOptionOrderOutput> {
-    const existingPurchaseOption = await this.purchaseOptions.findOne({
-      _id: purchaseOption,
-    });
-    if (!existingPurchaseOption) {
-      return { error: `PurchaseOption with ID "${purchaseOption}" not found.` };
-    }
-
-    await this.purchaseOptions.updateOne(
-      { _id: purchaseOption },
-      { $set: { atomicOrderId: atomicOrder } },
-    );
-    return {};
-  }
-
-  /**
-   * addItemOrder (item: Item, selectOrder: SelectOrder)
-   * **requires** `item` exists.
-   * **effects** Sets `item.selectOrderId` to `selectOrder`.
-   */
-  async addItemOrder(
-    { item, selectOrder }: AddItemOrderInput,
-  ): Promise<AddItemOrderOutput> {
-    const existingItem = await this.items.findOne({ _id: item });
-    if (!existingItem) {
-      return { error: `Item with ID "${item}" not found.` };
-    }
-
-    await this.items.updateOne(
-      { _id: item },
-      { $set: { selectOrderId: selectOrder } },
     );
     return {};
   }
