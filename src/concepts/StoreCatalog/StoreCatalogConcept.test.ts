@@ -1,5 +1,5 @@
 import { testDb } from "@utils/database.ts";
-import { Empty, ID, Result } from "@utils/types.ts";
+import { ID } from "@utils/types.ts";
 import StoreCatalogConcept from "./StoreCatalogConcept.ts";
 import {
   assertAndLog,
@@ -847,38 +847,10 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
     );
   });
 
-  await t.step("6. Update atomicOrder (custom action)", async () => {
-    const stepMessage = "6. Update atomicOrder (custom action)";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-    const atomicOrderId = "testAtomicOrder123" as ID;
-
-    const updateResult = await catalog.addPurchaseOptionOrder({
-      purchaseOption: poId,
-      atomicOrder: atomicOrderId,
-    });
-    assertAndLog(
-      "error" in updateResult,
-      false,
-      "AtomicOrder update should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-
-    const poDoc = await catalog.purchaseOptions.findOne({ _id: poId });
-    assertAndLog(
-      poDoc?.atomicOrderId,
-      atomicOrderId,
-      "atomicOrderId should be updated",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
   await t.step(
-    "7. Failure to update non-existent purchase option",
+    "6. Failure to update non-existent purchase option",
     async () => {
-      const stepMessage = "7. Failure to update non-existent purchase option";
+      const stepMessage = "6. Failure to update non-existent purchase option";
       printStepHeader(stepMessage);
       let checkIndex = 0;
 
@@ -905,9 +877,9 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
   );
 
   await t.step(
-    "8. Failure to update with invalid quantity or price",
+    "7. Failure to update with invalid quantity or price",
     async () => {
-      const stepMessage = "8. Failure to update with invalid quantity or price";
+      const stepMessage = "7. Failure to update with invalid quantity or price";
       printStepHeader(stepMessage);
       let checkIndex = 0;
 

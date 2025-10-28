@@ -65,3 +65,26 @@ export function printTestHeader(testName: string) {
 export function printStepHeader(stepMessage: string) {
   console.log(`\n### ➡️  Step: ${stepMessage}\n`);
 }
+
+// Helper for approximate float comparisons
+export function assertFloatEquals(
+  actual: number,
+  expected: number,
+  message: string,
+  stepMessage: string,
+  checkIndex: number,
+  epsilon: number = 0.001,
+) {
+  try {
+    assertEquals(
+      Math.abs(actual - expected) < epsilon,
+      true,
+      `Expected ${actual} to be approximately ${expected}. ${message}`,
+    );
+    console.log(`    ✅ Check ${checkIndex}: ${message}`);
+  } catch (e) {
+    console.log(`    ❌ Check ${checkIndex}: ${message}`);
+    console.error(`      Error in "${stepMessage}": ${message}`);
+    throw e;
+  }
+}
