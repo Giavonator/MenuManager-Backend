@@ -11,7 +11,7 @@ export type ID = string & { [Brand]: true };
  */
 export type Empty = Record<PropertyKey, never>;
 
-interface ErrorType {
+export interface ErrorType {
   error: string;
 }
 
