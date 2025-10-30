@@ -735,3 +735,116 @@ Deno.test("UserAuthentication - Case 3 (Admin Management)", async (t) => {
 
   await client.close();
 });
+
+Deno.test("UserAuthentication - Case 4 (Get Username)", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const userAuth = new UserAuthenticationConcept(db);
+
+  const aliceUsername = "alice";
+  const alicePassword = "aliceSecretPassword";
+  const bobUsername = "bob";
+  const bobPassword = "bobSecretPassword";
+
+  let aliceUser: ID;
+  let bobUser: ID;
+
+  await t.step("1. Create Alice and Bob users", async () => {
+    const stepMessage = "1. Create Alice and Bob users";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const registerAliceResult = await userAuth.register({
+      username: aliceUsername,
+      password: alicePassword,
+    });
+    assertAndLog(
+      "user" in registerAliceResult,
+      true,
+      "Alice's registration should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    aliceUser = (registerAliceResult as { user: ID }).user;
+
+    const registerBobResult = await userAuth.register({
+      username: bobUsername,
+      password: bobPassword,
+    });
+    assertAndLog(
+      "user" in registerBobResult,
+      true,
+      "Bob's registration should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    bobUser = (registerBobResult as { user: ID }).user;
+  });
+
+  await t.step("2. Test _getUsername for existing users", async () => {
+    const stepMessage = "2. Test _getUsername for existing users";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const aliceUsernameResult = await userAuth._getUsername({
+      user: aliceUser,
+    });
+    assertAndLog(
+      "username" in aliceUsernameResult,
+      true,
+      "Getting Alice's username should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (aliceUsernameResult as { username: string }).username,
+      aliceUsername,
+      "Alice's username should match the registered username",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const bobUsernameResult = await userAuth._getUsername({ user: bobUser });
+    assertAndLog(
+      "username" in bobUsernameResult,
+      true,
+      "Getting Bob's username should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (bobUsernameResult as { username: string }).username,
+      bobUsername,
+      "Bob's username should match the registered username",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("3. Test _getUsername for non-existent user", async () => {
+    const stepMessage = "3. Test _getUsername for non-existent user";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const fakeUserId = "fake-user-id" as ID;
+    const fakeUsernameResult = await userAuth._getUsername({
+      user: fakeUserId,
+    });
+    assertAndLog(
+      "error" in fakeUsernameResult,
+      true,
+      "Getting username for non-existent user should return error",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (fakeUsernameResult as { error: string }).error,
+      `User with ID '${fakeUserId}' not found.`,
+      "Error message should indicate user not found",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await client.close();
+});

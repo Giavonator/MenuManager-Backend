@@ -48,6 +48,10 @@
         **requires** true\
         **effects** returns the set of all `Users`
 
-    _getNumberOfAdmins (): (count: Number)\
-        **requires** true\
-        **effects** returns count(u in Users where `u.admin` is true)
+    _getNumberOfAdmins (): (count: Number)\
+        **requires** true\
+        **effects** returns count(u in Users where `u.admin` is true)
+
+    _getUsername (user: User): (username: String)\
+        **requires** `user` is in `Users`\
+        **effects** returns `user.username`

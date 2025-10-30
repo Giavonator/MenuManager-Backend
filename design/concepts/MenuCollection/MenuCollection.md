@@ -49,6 +49,6 @@
     **requires** `user` exists.\
     **effects** Returns the set of all `Menu` entities where the `owner` attribute matches the given user.
 
-  _getMenuByDate (date: Date, owner: User): (menu: Menu)\
-    **requires** A menu exists for `date` owned by `owner`.\
-    **effects** Returns the `Menu` ID associated with that `date` and `owner`.
+  _getMenuByDate (date: Date): (menu: Menu)\
+    **requires** A menu exists for `date`.\
+    **effects** Returns the `Menu` ID associated with that `date`.

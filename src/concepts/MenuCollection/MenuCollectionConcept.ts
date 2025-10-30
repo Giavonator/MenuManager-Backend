@@ -13,12 +13,34 @@ type Recipe = ID;
 const toDateOnlyString = (date: Date): string =>
   date.toISOString().split("T")[0];
 
+// Utility to create a UTC date at start of day
+const createUTCDate = (year: number, month: number, day: number): Date => {
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+};
+
+// Utility to normalize a date to UTC start of day
+const normalizeToUTCStartOfDay = (date: Date): Date => {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1; // getMonth() is 0-indexed
+  const day = date.getUTCDate();
+  return createUTCDate(year, month, day);
+};
+
+// Utility to convert a UTC date back to a date-only string in the same format as input
+const dateToDateOnlyString = (date: Date): string => {
+  // Since we store dates as UTC start of day, we can safely extract the date components
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 // --- Input/Output Types for Actions ---
 
-type CreateMenuInput = { name: string; date: Date; actingUser: User };
+type CreateMenuInput = { name: string; date: Date | string; actingUser: User };
 type CreateMenuOutput = Result<{ menu: ID }>;
 
-type UpdateMenuInput = { menu: ID; name?: string; date?: Date };
+type UpdateMenuInput = { menu: ID; name?: string; date?: Date | string };
 type UpdateMenuOutput = Result<Empty>;
 
 type AddRecipeInput = { menu: ID; recipe: Recipe; scalingFactor: number };
@@ -45,7 +67,7 @@ type GetRecipesInMenuOutput = Result<{ menuRecipes: Record<Recipe, number> }[]>;
 type GetMenusOwnedByUserInput = { user: User };
 type GetMenusOwnedByUserOutput = Result<{ menus: ID }[]>;
 
-type GetMenuByDateInput = { date: Date; owner: User };
+type GetMenuByDateInput = { date: Date | string };
 type GetMenuByDateOutput = Result<{ menu: ID }[]>;
 
 /**
@@ -93,21 +115,19 @@ export default class MenuCollectionConcept {
         return { error: "Menu name cannot be empty." };
       }
 
+      // Parse date if it's a string (from JSON)
+      const parsedDate = typeof date === "string" ? new Date(date) : date;
+      if (isNaN(parsedDate.getTime())) {
+        return { error: "Invalid date format provided." };
+      }
+
       // Precondition 2: `date` is in the future (compare date-only)
       const today = new Date();
-      // Normalize today to start of day for comparison
-      today.setHours(0, 0, 0, 0);
-      today.setMilliseconds(0);
-      today.setSeconds(0);
-      today.setMinutes(0);
+      const todayUTC = normalizeToUTCStartOfDay(today);
 
-      const menuDate = new Date(date);
-      menuDate.setHours(0, 0, 0, 0); // Normalize menuDate to start of day
-      menuDate.setMilliseconds(0);
-      menuDate.setSeconds(0);
-      menuDate.setMinutes(0);
+      const menuDate = normalizeToUTCStartOfDay(parsedDate);
 
-      if (menuDate < today) {
+      if (menuDate < todayUTC) {
         return { error: "Menu date must be in the future." };
       }
 
@@ -125,7 +145,7 @@ export default class MenuCollectionConcept {
       if (existingMenu) {
         return {
           error: `A menu already exists for user ${actingUser} on ${
-            toDateOnlyString(date)
+            toDateOnlyString(parsedDate)
           }.`,
         };
       }
@@ -177,12 +197,14 @@ export default class MenuCollectionConcept {
       }
 
       if (date !== undefined) {
-        // Normalize new date to start of day
-        const newMenuDate = new Date(date);
-        newMenuDate.setHours(0, 0, 0, 0);
-        newMenuDate.setMilliseconds(0);
-        newMenuDate.setSeconds(0);
-        newMenuDate.setMinutes(0);
+        // Parse date if it's a string (from JSON)
+        const parsedDate = typeof date === "string" ? new Date(date) : date;
+        if (isNaN(parsedDate.getTime())) {
+          return { error: "Invalid date format provided." };
+        }
+
+        // Normalize new date to UTC start of day
+        const newMenuDate = normalizeToUTCStartOfDay(parsedDate);
 
         // Precondition 2: no `otherMenu` on date has the same `menu.user` for new date.
         // Check if another menu by the same owner already exists for the new date
@@ -196,7 +218,7 @@ export default class MenuCollectionConcept {
           return {
             error:
               `Another menu already exists for user ${existingMenu.owner} on ${
-                toDateOnlyString(date)
+                toDateOnlyString(parsedDate)
               }.`,
           };
         }
@@ -366,7 +388,7 @@ export default class MenuCollectionConcept {
 
       return [{
         name: menuDoc.name,
-        date: menuDoc.date,
+        date: new Date(menuDoc.date.getTime()), // Ensure we return a proper Date object
         owner: menuDoc.owner,
       }];
     } catch (e: unknown) {
@@ -433,33 +455,32 @@ export default class MenuCollectionConcept {
   }
 
   /**
-   * _getMenuByDate (date: Date, owner: User): (menu: Menu)
+   * _getMenuByDate (date: Date): (menu: Menu)
    *
-   * **requires** A menu exists for `date` owned by `owner`.
+   * **requires** A menu exists for `date`.
    *
-   * **effects** Returns the `Menu` ID associated with that `date` and `owner`.
+   * **effects** Returns the `Menu` ID associated with that `date`.
    */
   async _getMenuByDate(
-    { date, owner }: GetMenuByDateInput,
+    { date }: GetMenuByDateInput,
   ): Promise<GetMenuByDateOutput> {
+    // Parse date if it's a string (from JSON)
+    const parsedDate = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(parsedDate.getTime())) {
+      return { error: "Invalid date format provided." };
+    }
+
     try {
-      // Precondition: A menu exists for `date` owned by `owner`.
-      const searchDate = new Date(date);
-      searchDate.setHours(0, 0, 0, 0); // Normalize for date-only comparison
-      searchDate.setMilliseconds(0);
-      searchDate.setSeconds(0);
-      searchDate.setMinutes(0);
+      // Precondition: A menu exists for `date`.
+      const searchDate = normalizeToUTCStartOfDay(parsedDate);
 
       const menuDoc = await this.menus.findOne({
         date: searchDate,
-        owner: owner,
       });
 
       if (!menuDoc) {
         return {
-          error: `No menu found for user ${owner} on date ${
-            toDateOnlyString(date)
-          }.`,
+          error: `No menu found for date ${toDateOnlyString(parsedDate)}.`,
         };
       }
 
@@ -468,8 +489,8 @@ export default class MenuCollectionConcept {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(
         `Error getting menu by date ${
-          toDateOnlyString(date)
-        } for owner ${owner}: ${errorMessage}`,
+          toDateOnlyString(parsedDate)
+        }: ${errorMessage}`,
       );
       return { error: `Failed to get menu by date: ${errorMessage}` };
     }

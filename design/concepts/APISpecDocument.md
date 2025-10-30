@@ -804,6 +804,41 @@
 
 ---
 
+#### POST /api/UserAuthentication/_getUsername
+
+**Description:** Returns the username for a specified user.
+
+**Requirements:**
+- `user` is in `Users`
+
+**Effects:**
+- returns `user.username`
+
+**Request Body:**
+```json
+{
+  "user": "string"
+}
+```
+
+**Success Response Body (Query):**
+```json
+[
+  {
+    "username": "string"
+  }
+]
+```
+
+**Error Response Body:**
+```json
+{
+  "error": "string"
+}
+```
+
+---
+
 ## API Specification: MenuCollection Concept
 
 **Purpose:** Organize and present a collection of recipes as a single menu for a specific date, allowing for individual recipe scaling within the menu.
@@ -1104,19 +1139,18 @@
 
 #### POST /api/MenuCollection/_getMenuByDate
 
-**Description:** Returns the menu ID associated with a specific date and owner.
+**Description:** Returns the menu ID associated with a specific date.
 
 **Requirements:**
-- A menu exists for `date` owned by `owner`.
+- A menu exists for `date`.
 
 **Effects:**
-- Returns the `Menu` ID associated with that `date` and `owner`.
+- Returns the `Menu` ID associated with that `date`.
 
 **Request Body:**
 ```json
 {
-  "date": "string",
-  "owner": "string"
+  "date": "string"
 }
 ```
 

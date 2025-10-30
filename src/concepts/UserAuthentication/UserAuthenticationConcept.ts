@@ -64,6 +64,11 @@ type GetListOfUsersOutput = { users: User[] };
 // No error specified, returns count.
 type GetNumberOfAdminsOutput = { count: number };
 
+// _getUsername (user: User): (username: String) | (error: String)
+// Returns error if user not found.
+type GetUsernameInput = { user: User };
+type GetUsernameOutput = { username: string } | { error: string };
+
 /**
  * concept UserAuthentication
  * purpose: limit User access to particular subset of resources
@@ -281,5 +286,25 @@ export default class UserAuthenticationConcept {
     // Effect: Returns the count of administrators
     const count = await this._getNumberOfAdminsInternal();
     return { count };
+  }
+
+  /**
+   * _getUsername (user: User): (username: String)
+   *   requires: `user` is in `Users`
+   *   effects: returns `user.username`
+   */
+  async _getUsername(
+    input: GetUsernameInput,
+  ): Promise<GetUsernameOutput> {
+    const { user } = input;
+
+    // Precondition: `user` is in `Users`
+    const userDoc = await this.users.findOne({ _id: user });
+    if (!userDoc) {
+      return { error: `User with ID '${user}' not found.` };
+    }
+
+    // Effect: Returns the username of the user
+    return { username: userDoc.username };
   }
 }

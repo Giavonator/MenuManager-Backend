@@ -12,18 +12,13 @@ import MenuCollectionConcept from "./MenuCollectionConcept.ts";
 type User = ID;
 type Recipe = ID;
 
-// Utility for consistent date generation and normalization
+// Utility for consistent date generation and normalization using UTC
 const getNormalizedDate = (
   year: number,
   month: number,
   day: number,
 ): Date => {
-  const date = new Date(year, month - 1, day); // Month is 0-indexed
-  date.setHours(0, 0, 0, 0);
-  date.setMilliseconds(0);
-  date.setSeconds(0);
-  date.setMinutes(0);
-  return date;
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0)); // Month is 0-indexed
 };
 
 const getFutureDate = (daysInFuture: number): Date => {
@@ -1252,12 +1247,11 @@ Deno.test("MenuCollectionConcept - Query Actions", async (t) => {
       );
     });
 
-    await t.step("7. _getMenuByDate for existing menu/date/owner", async () => {
-      const currentStepMsg = "7. _getMenuByDate for existing menu/date/owner";
+    await t.step("7. _getMenuByDate for existing menu/date", async () => {
+      const currentStepMsg = "7. _getMenuByDate for existing menu/date";
       printStepHeader(currentStepMsg);
       const menuByDate = await menuCollection._getMenuByDate({
         date: date1,
-        owner: TEST_USER_ALICE,
       });
       assertAndLog(
         "error" in menuByDate,
@@ -1283,26 +1277,24 @@ Deno.test("MenuCollectionConcept - Query Actions", async (t) => {
     });
 
     await t.step(
-      "8. _getMenuByDate for non-existent menu/date/owner",
+      "8. _getMenuByDate for non-existent menu/date",
       async () => {
-        const currentStepMsg =
-          "8. _getMenuByDate for non-existent menu/date/owner";
+        const currentStepMsg = "8. _getMenuByDate for non-existent menu/date";
         printStepHeader(currentStepMsg);
         const nonExistentDate = getFutureDate(30);
         const menuByDate = await menuCollection._getMenuByDate({
           date: nonExistentDate,
-          owner: TEST_USER_ALICE,
         });
         assertAndLog(
           "error" in menuByDate,
           true,
-          "Should return an error for non-existent menu by date/owner",
+          "Should return an error for non-existent menu by date",
           stepMessagePrefix,
           ++checkIndex,
         );
         assertAndLog(
           (menuByDate as { error: string }).error,
-          `No menu found for user ${TEST_USER_ALICE} on date ${
+          `No menu found for date ${
             nonExistentDate.toISOString().split("T")[0]
           }.`,
           "Error message should match",
