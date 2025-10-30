@@ -1139,18 +1139,19 @@
 
 #### POST /api/MenuCollection/_getMenuByDate
 
-**Description:** Returns the menu ID associated with a specific date.
+**Description:** Returns the menu ID associated with a specific date and owner.
 
 **Requirements:**
-- A menu exists for `date`.
+- A menu exists for `date` owned by `owner`.
 
 **Effects:**
-- Returns the `Menu` ID associated with that `date`.
+- Returns the `Menu` ID associated with that `date` and `owner`.
 
 **Request Body:**
 ```json
 {
-  "date": "string"
+  "date": "string",
+  "owner": "string"
 }
 ```
 
