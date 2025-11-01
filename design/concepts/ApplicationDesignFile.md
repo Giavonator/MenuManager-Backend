@@ -2,10 +2,18 @@
 
 ## Application Changes
 
-The design of the applciation was properly documented with the changes of each concept. The relation between the concepts didn't change, therefore, its much simpler to point you in the direction of the individual concept changes:
+For Assignment 4b, the biggest design changes was reverting the design changes made within Assignment 3 and 4a.
 
-1. [DesignChanges.md](../../design/concepts/UserAuthentication/DesignChanges.md)
-2. [DesignChanges.md](../../design/concepts/MenuManager/DesignChanges.md)
+Originally we had five concepts that combined into two due to sharing of state. After implementation I realized that this huge concept that composed many others was not a good idea. Therefore, with the help of Professor Jackson I was able to break the application into six new concepts: UserAuthentication, StoreCatalog, CookBook, MenuCollection, WeeklyCart, and PurchaseSystem.
+
+These concepts broke apart the previous MenuManager concept into the more accurate parts that it was accomplishing: Store+Ingredients, Recipe, Menu, Cart, Purchasing. The actual conceptual designs of these components did not change from the MenuManager concept, except for breaking them up into several concepts. You can read the design of each individual component below:
+
+[UserAuthentication](./UserAuthentication/UserAuthentication.md)\
+[StoreCatalog](./StoreCatalog/StoreCatalog.md)\
+[CookBook](./CookBook/CookBook.md)\
+[MenuCollection](./MenuCollection/MenuCollection.md)\
+[WeeklyCart](./WeeklyCart/WeeklyCart.md)\
+[PurchaseSystem](./PurchaseSystem/PurchaseSystem.md)
 
 ## Interesting Moments
 
