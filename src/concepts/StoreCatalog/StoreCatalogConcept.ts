@@ -17,7 +17,7 @@ type CreateItemOutput = Result<{ item: Item }>;
 
 // deleteItem (item: Item)
 type DeleteItemInput = { item: Item };
-type DeleteItemOutput = Result<Empty>;
+type DeleteItemOutput = Result<{ success: true }>;
 
 // addPurchaseOption (item: Item, quantity: Float, units: String, price: Float, store: String): (purchaseOption: PurchaseOption)
 type AddPurchaseOptionInput = {
@@ -56,23 +56,19 @@ type UpdatePurchaseOptionInput =
   | UpdatePurchaseOptionUnitsInput
   | UpdatePurchaseOptionPriceInput
   | UpdatePurchaseOptionStoreInput;
-type UpdatePurchaseOptionOutput = Result<Empty>;
+type UpdatePurchaseOptionOutput = Result<{ success: true }>;
 
 // removePurchaseOption (item: Item, purchaseOption: PurchaseOption)
 type RemovePurchaseOptionInput = { item: Item; purchaseOption: PurchaseOption };
-type RemovePurchaseOptionOutput = Result<Empty>;
+type RemovePurchaseOptionOutput = Result<{ success: true }>;
 
-// addItemName (item: Item, name: String)
-type AddItemNameInput = { item: Item; name: string };
-type AddItemNameOutput = Result<Empty>;
-
-// removeItemName (item: Item, name: String)
-type RemoveItemNameInput = { item: Item; name: string };
-type RemoveItemNameOutput = Result<Empty>;
+// updateItemName (item: Item, name: String)
+type UpdateItemNameInput = { item: Item; name: string };
+type UpdateItemNameOutput = Result<{ success: true }>;
 
 // confirmPurchaseOption (purchaseOption: PurchaseOption)
 type ConfirmPurchaseOptionInput = { purchaseOption: PurchaseOption };
-type ConfirmPurchaseOptionOutput = Result<Empty>;
+type ConfirmPurchaseOptionOutput = Result<{ success: true }>;
 
 // --- Query Input/Output Types ---
 
@@ -80,13 +76,13 @@ type ConfirmPurchaseOptionOutput = Result<Empty>;
 type GetItemByNameInput = { name: string };
 type GetItemByNameOutput = Result<{ item: Item }[]>;
 
+// _getItemName (item: Item): (name: String)
+type GetItemNameInput = { item: Item };
+type GetItemNameOutput = Result<{ name: string }[]>;
+
 // _getItemByPurchaseOption (purchaseOption: PurchaseOption): (item: Item)
 type GetItemByPurchaseOptionInput = { purchaseOption: PurchaseOption };
 type GetItemByPurchaseOptionOutput = Result<{ item: Item }[]>;
-
-// _getItemNames (item: Item): (names: Set of String)
-type GetItemNamesInput = { item: Item };
-type GetItemNamesOutput = Result<{ names: string[] }[]>;
 
 // _getItemPurchaseOptions (item: Item): (purchaseOptions: Set of PurchaseOption)
 type GetItemPurchaseOptionsInput = { item: Item };
@@ -112,13 +108,12 @@ type GetAllItemsOutput = Result<{ items: Item[] }[]>;
 
 /**
  * a set of Item with
- *   a names Set of String
- *   a purchaseOptions Set of PurchaseOption
- *   a purchase SelectOrder
+ *   a name String
+ *   a purchaseOptions Set of PurchaseOption
  */
 interface ItemDoc {
   _id: Item;
-  names: string[];
+  name: string;
   purchaseOptions: PurchaseOption[];
 }
 
@@ -152,13 +147,13 @@ export default class StoreCatalogConcept {
 
   /**
    * createItem (primaryName: String): (item: Item)
-   * **requires** no Item already exists with `primaryName` in its names set.
-   * **effects** Creates a new `Item` with `primaryName` in its `names` set and an empty `purchaseOptions` set. Returns the new `Item` ID.
+   * **requires** no Item already exists with `primaryName` as its name.
+   * **effects** Creates a new `Item` with `primaryName` as its `name` and an empty `purchaseOptions` set. Returns the new `Item` ID.
    */
   async createItem(
     { primaryName }: CreateItemInput,
   ): Promise<CreateItemOutput> {
-    const existingItem = await this.items.findOne({ names: primaryName });
+    const existingItem = await this.items.findOne({ name: primaryName });
     if (existingItem) {
       return {
         error: `An item with the name "${primaryName}" already exists.`,
@@ -168,9 +163,8 @@ export default class StoreCatalogConcept {
     const newItemId = freshID();
     const newItem: ItemDoc = {
       _id: newItemId,
-      names: [primaryName],
+      name: primaryName,
       purchaseOptions: [], // Initialize empty
-      // selectOrderId is optional, not set on creation
     };
 
     await this.items.insertOne(newItem);
@@ -191,7 +185,7 @@ export default class StoreCatalogConcept {
     // Delete associated purchase options from their own collection
     await this.purchaseOptions.deleteMany({ itemId: item });
 
-    return {};
+    return { success: true };
   }
 
   /**
@@ -274,7 +268,7 @@ export default class StoreCatalogConcept {
     if (result.matchedCount === 0) {
       return { error: `PurchaseOption with ID "${purchaseOption}" not found.` };
     }
-    return {};
+    return { success: true };
   }
 
   /**
@@ -307,58 +301,35 @@ export default class StoreCatalogConcept {
       { $pull: { purchaseOptions: purchaseOption } },
     );
 
-    return {};
+    return { success: true };
   }
 
   /**
-   * addItemName (item: Item, name: String)
-   * **requires** `item` exists, `name` is not already an alias for `item` (i.e., not in `item.names`).
-   * **effects** Adds `name` to the `names` set of `item`.
+   * updateItemName (item: Item, name: String)
+   * **requires** `item` exists, no other Item already exists with `name` as its name.
+   * **effects** Updates the `name` of `item` to the specified `name`.
    */
-  async addItemName(
-    { item, name }: AddItemNameInput,
-  ): Promise<AddItemNameOutput> {
+  async updateItemName(
+    { item, name }: UpdateItemNameInput,
+  ): Promise<UpdateItemNameOutput> {
     const existingItem = await this.items.findOne({ _id: item });
     if (!existingItem) {
       return { error: `Item with ID "${item}" not found.` };
     }
-    if (existingItem.names.includes(name)) {
+
+    // Check if another item already has this name
+    const itemWithName = await this.items.findOne({ name: name });
+    if (itemWithName && itemWithName._id !== item) {
       return {
-        error: `Name "${name}" is already an alias for Item "${item}".`,
+        error: `An item with the name "${name}" already exists.`,
       };
     }
 
     await this.items.updateOne(
       { _id: item },
-      { $addToSet: { names: name } },
+      { $set: { name: name } },
     );
-    return {};
-  }
-
-  /**
-   * removeItemName (item: Item, name: String)
-   * **requires** `item` exists, `name` is in the `names` set of `item`, and `name` is not the only name for the `item`.
-   * **effects** Removes `name` from the `names` set of `item`.
-   */
-  async removeItemName(
-    { item, name }: RemoveItemNameInput,
-  ): Promise<RemoveItemNameOutput> {
-    const existingItem = await this.items.findOne({ _id: item });
-    if (!existingItem) {
-      return { error: `Item with ID "${item}" not found.` };
-    }
-    if (!existingItem.names.includes(name)) {
-      return { error: `Name "${name}" is not an alias for Item "${item}".` };
-    }
-    if (existingItem.names.length === 1) {
-      return { error: `Cannot remove the only name for Item "${item}".` };
-    }
-
-    await this.items.updateOne(
-      { _id: item },
-      { $pull: { names: name } },
-    );
-    return {};
+    return { success: true };
   }
 
   /**
@@ -386,22 +357,37 @@ export default class StoreCatalogConcept {
       { _id: purchaseOption },
       { $set: { confirmed: true } },
     );
-    return {};
+    return { success: true };
   }
 
   /**
    * _getItemByName (name: String): (item: Item)
-   * **requires** An item exists with `name` in its `names` set.
+   * **requires** An item exists with `name` as its name.
    * **effects** Returns the `Item` ID with the given name.
    */
   async _getItemByName(
     { name }: GetItemByNameInput,
   ): Promise<GetItemByNameOutput> {
-    const itemDoc = await this.items.findOne({ names: name });
+    const itemDoc = await this.items.findOne({ name: name });
     if (!itemDoc) {
       return { error: `Item with name "${name}" not found.` };
     }
     return [{ item: itemDoc._id }];
+  }
+
+  /**
+   * _getItemName (item: Item): (name: String)
+   * **requires** `item` exists.
+   * **effects** Returns the `name` of the given `item`.
+   */
+  async _getItemName(
+    { item }: GetItemNameInput,
+  ): Promise<GetItemNameOutput> {
+    const itemDoc = await this.items.findOne({ _id: item });
+    if (!itemDoc) {
+      return { error: `Item with ID "${item}" not found.` };
+    }
+    return [{ name: itemDoc.name }];
   }
 
   /**
@@ -419,21 +405,6 @@ export default class StoreCatalogConcept {
       };
     }
     return [{ item: poDoc.itemId }];
-  }
-
-  /**
-   * _getItemNames (item: Item): (names: Set of String)
-   * **requires** `item` exists.
-   * **effects** Returns the associated names of the item.
-   */
-  async _getItemNames(
-    { item }: GetItemNamesInput,
-  ): Promise<GetItemNamesOutput> {
-    const itemDoc = await this.items.findOne({ _id: item });
-    if (!itemDoc) {
-      return { error: `Item with ID "${item}" not found.` };
-    }
-    return [{ names: itemDoc.names }];
   }
 
   /**

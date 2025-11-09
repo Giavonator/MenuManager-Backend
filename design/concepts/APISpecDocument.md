@@ -1,8 +1,60 @@
 # MenuManager API Specification
 
+## Synchronization Overview
+
+This API implements automatic synchronization between concepts to maintain data consistency and enable cross-concept functionality. These synchronizations happen automatically when you call certain endpoints, and the resulting data can be queried through the API.
+
+### StoreCatalog ↔ PurchaseSystem
+
+- When an item is created, a `SelectOrder` is automatically created in PurchaseSystem with `associateID` matching the item ID
+- When a purchase option is added, a corresponding `AtomicOrder` is automatically created in PurchaseSystem and linked to the item's `SelectOrder`
+- When purchase options are updated or removed, the corresponding `AtomicOrder`s in PurchaseSystem are automatically updated or deleted
+- When an item is deleted, its corresponding `SelectOrder` and all `AtomicOrder`s in PurchaseSystem are automatically deleted
+- You can query PurchaseSystem orders using the item or purchase option ID as the `associateID` via `/api/PurchaseSystem/_getOrderByAssociateID`
+- Optimal purchase calculations are automatically recalculated when purchase options change
+
+### CookBook ↔ PurchaseSystem
+
+- When a recipe is created, a `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the recipe ID
+- When ingredients are added to a recipe, if an item with the ingredient name exists in StoreCatalog, the recipe's `CompositeOrder` is automatically linked to that item's `SelectOrder` with the ingredient quantity as the scale factor
+- When ingredients are updated or removed, the links between the recipe's `CompositeOrder` and ingredient `SelectOrder`s are automatically updated or removed
+- Recipe orders automatically aggregate all ingredient requirements and can calculate optimal purchase costs
+- You can query recipe orders via `/api/PurchaseSystem/_getOrderByAssociateID` using the recipe ID
+- Optimal purchase calculations are automatically updated when recipe ingredients change
+
+### MenuCollection ↔ PurchaseSystem & WeeklyCart
+
+- When a menu is created:
+  - A `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the menu ID
+  - If no weekly cart exists for the menu's date, a cart is automatically created for that week
+  - The menu is automatically added to its weekly cart
+- When recipes are added to menus, the menu's `CompositeOrder` is automatically linked to the recipe's `CompositeOrder` with the specified scaling factor
+- When a menu's date changes, it may be automatically moved between weekly carts
+- When a menu is deleted, it is automatically removed from its weekly cart and its PurchaseSystem order is deleted
+- Menu orders aggregate all recipe orders and provide total cost calculations
+- You can query menu orders via `/api/PurchaseSystem/_getOrderByAssociateID` and carts via `/api/WeeklyCart/_getCartWithMenu`
+- Optimal purchase calculations are automatically updated when menus or their recipes change
+
+### WeeklyCart ↔ PurchaseSystem
+
+- When a cart is created, a `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the cart ID
+- When menus are added to carts, the cart's `CompositeOrder` is automatically linked to the menu's `CompositeOrder`
+- When menus are removed from carts, the links are automatically removed
+- When a cart is deleted, its corresponding `CompositeOrder` and all links in PurchaseSystem are automatically deleted
+- Cart orders aggregate all menu orders and provide total cost calculations for the entire week
+- You can query cart orders via `/api/PurchaseSystem/_getOrderByAssociateID` using the cart ID
+- Optimal purchase calculations are automatically updated when carts or their menus change
+
+### Authorization
+
+- Authorization is handled automatically via synchronizations. Endpoints that require authentication will validate the `Authorization: Bearer <user-id>` header
+- Authorization rules (owner/admin checks) are enforced automatically before actions execute
+
+---
+
 ## API Specification: StoreCatalog Concept
 
-**Purpose:** Manage a comprehensive catalog of purchasable ingredients, their alternative names, and available purchase options across different stores.
+**Purpose:** Manage a comprehensive catalog of purchasable ingredients, their names, and available purchase options across different stores.
 
 ---
 
@@ -13,10 +65,11 @@
 **Description:** Creates a new item in the catalog with a primary name.
 
 **Requirements:**
-- No Item already exists with `primaryName` in its names set.
+- No Item already exists with `primaryName` as its name.
 
 **Effects:**
-- Creates a new `Item` with `primaryName` in its `names` set and no empty `purchaseOptions`. Returns the new `Item` ID.
+- Creates a new `Item` with `primaryName` as its `name` and an empty `purchaseOptions` set. Returns the new `Item` ID.
+- A corresponding `SelectOrder` is automatically created in PurchaseSystem with `associateID` matching the item ID. Query via `/api/PurchaseSystem/_getOrderByAssociateID`.
 
 **Request Body:**
 ```json
@@ -45,11 +98,23 @@
 
 **Description:** Removes an item from the catalog, along with all its associated purchase options.
 
+**Authorization:**
+- If the item has at least one confirmed purchase option: Only administrators can delete the item.
+- If the item has no confirmed purchase options: Any authenticated user can delete the item.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `item` exists.
 
 **Effects:**
-- Removes `item` from the catalog. Also removes all `PurchaseOption`s where `purchaseOption.item` is `item`.
+- Removes `item` from the catalog, along with all its associated purchase options.
+- The corresponding `SelectOrder` and all its `AtomicOrder`s in PurchaseSystem are automatically deleted, and optimal purchase calculations are recalculated for all affected parent orders.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -78,11 +143,23 @@
 
 **Description:** Adds a new purchase option to an existing item.
 
+**Authorization:**
+- If the item already has at least one confirmed purchase option: Only administrators can add additional purchase options.
+- If the item has no confirmed purchase options: Any authenticated user can add a purchase option.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `item` exists. `quantity` > 0, `price` >= 0.
 
 **Effects:**
 - Adds a new `purchaseOption` to `item.purchaseOptions` set with the specified details. Returns the new `PurchaseOption` ID.
+- A corresponding `AtomicOrder` is automatically created in PurchaseSystem and linked to the item's `SelectOrder`. Query via `/api/PurchaseSystem/_getOrderByAssociateID` using the purchaseOption ID.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -115,11 +192,23 @@
 
 **Description:** Updates a specific attribute (quantity, units, price, or store) of a purchase option.
 
+**Authorization:**
+- If the purchase option is confirmed: Only administrators can update it.
+- If the purchase option is not confirmed: Any authenticated user can update it.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `purchaseOption` exists. `quantity` > 0, `price` >= 0 for respective updates.
 
 **Effects:**
-- Updates the specified attribute of the `purchaseOption`.
+- Updates the specified attribute (quantity, units, price, or store) of the `purchaseOption`.
+- The corresponding `AtomicOrder` in PurchaseSystem is automatically updated, and optimal purchase calculations are recalculated for all parent orders.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body (Update Quantity):**
 ```json
@@ -173,11 +262,23 @@
 
 **Description:** Removes a specific purchase option from an item's associated options.
 
+**Authorization:**
+- If the purchase option is confirmed: Only administrators can remove it.
+- If the purchase option is not confirmed: Any authenticated user can remove it.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `item` exists, `purchaseOption` is associated with `item`.
 
 **Effects:**
 - Removes `purchaseOption` from `item`'s associated `PurchaseOption`s.
+- The corresponding `AtomicOrder` in PurchaseSystem is automatically deleted, and optimal purchase calculations are recalculated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -203,49 +304,26 @@
 
 ---
 
-#### POST /api/StoreCatalog/addItemName
+#### POST /api/StoreCatalog/updateItemName
 
-**Description:** Adds an additional name (alias) to an existing item.
+**Description:** Updates the name of an existing item.
 
-**Requirements:**
-- `item` exists, `name` is not already an alias for `item` (i.e., not in `item.names`).
-
-**Effects:**
-- Adds `name` to the `names` set of `item`.
-
-**Request Body:**
-```json
-{
-  "item": "string",
-  "name": "string"
-}
-```
-
-**Success Response Body (Action):**
-```json
-{
-  "success": true
-}
-```
-
-**Error Response Body:**
-```json
-{
-  "error": "string"
-}
-```
-
----
-
-#### POST /api/StoreCatalog/removeItemName
-
-**Description:** Removes an existing name (alias) from an item, provided it's not the only name.
+**Authorization:**
+- If the item has at least one confirmed purchase option: Only administrators can update the item name.
+- If the item has no confirmed purchase options: Any authenticated user can update the item name.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
 
 **Requirements:**
-- `item` exists, `name` is in the `names` set of `item`, and `name` is not the only name for the `item`.
+- `item` exists, no other Item already exists with `name` as its name.
 
 **Effects:**
-- Removes `name` from the `names` set of `item`.
+- Updates the `name` of `item` to the specified `name`.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -275,11 +353,19 @@
 
 **Description:** Marks a purchase option as confirmed.
 
+**Authorization:**
+- Only administrators can confirm purchase options.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+- The requesting user must be an administrator.
+
 **Requirements:**
 - `purchaseOption` exists, `purchaseOption` is not already `confirmed`.
 
-**Effects:**
-- Sets `purchaseOption.confirmed` to `true`.
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -306,10 +392,10 @@
 
 #### POST /api/StoreCatalog/_getItemByName
 
-**Description:** Returns the ID of an item that has the given name as one of its aliases.
+**Description:** Returns the ID of an item that has the given name.
 
 **Requirements:**
-- An item exists with `name` in its `names` set.
+- An item exists with `name` as its name.
 
 **Effects:**
 - Returns the `Item` ID with the given name.
@@ -326,6 +412,41 @@
 [
   {
     "item": "string"
+  }
+]
+```
+
+**Error Response Body:**
+```json
+{
+  "error": "string"
+}
+```
+
+---
+
+#### POST /api/StoreCatalog/_getItemName
+
+**Description:** Returns the name of a given item.
+
+**Requirements:**
+- `item` exists.
+
+**Effects:**
+- Returns the `name` of the item.
+
+**Request Body:**
+```json
+{
+  "item": "string"
+}
+```
+
+**Success Response Body (Query):**
+```json
+[
+  {
+    "name": "string"
   }
 ]
 ```
@@ -361,43 +482,6 @@
 [
   {
     "item": "string"
-  }
-]
-```
-
-**Error Response Body:**
-```json
-{
-  "error": "string"
-}
-```
-
----
-
-#### POST /api/StoreCatalog/_getItemNames
-
-**Description:** Returns all names (aliases) associated with a given item.
-
-**Requirements:**
-- `item` exists.
-
-**Effects:**
-- Returns the associated details of the item.
-
-**Request Body:**
-```json
-{
-  "item": "string"
-}
-```
-
-**Success Response Body (Query):**
-```json
-[
-  {
-    "names": [
-      "string"
-    ]
   }
 ]
 ```
@@ -849,20 +933,32 @@
 
 #### POST /api/MenuCollection/createMenu
 
-**Description:** Creates a new menu for a given date, owned by a specific user.
+**Description:** Creates a new menu for a given date, owned by the authenticated user.
+
+**Authorization:**
+- Any authenticated user can create a menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+- The system verifies that no menu already exists for the authenticated user on the specified date.
 
 **Requirements:**
-- `name` is not empty, `date` is in the future, `actingUser` exists. No other `Menu` exists for this `actingUser` on this `date`.
+- `name` is not empty, `date` is in the future.
+- No other `Menu` exists for the authenticated user on this `date`.
 
 **Effects:**
-- Creates a new `Menu` with the given `name`, `date`, and `owner`=`actingUser`. It will have an empty set of `menuRecipes`. Returns the new `Menu` ID.
+- Creates a new `Menu` with the given `name`, `date`, and `owner` set to the authenticated user. It will have an empty set of `menuRecipes`. Returns the new `Menu` ID.
+- A corresponding `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the menu ID. If no weekly cart exists for the menu's date, a cart is automatically created. The menu is automatically added to its weekly cart. Query the order via `/api/PurchaseSystem/_getOrderByAssociateID` and the cart via `/api/WeeklyCart/_getCartWithMenu`.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
 {
   "name": "string",
-  "date": "string",
-  "actingUser": "string"
+  "date": "string"
 }
 ```
 
@@ -886,11 +982,22 @@
 
 **Description:** Updates either the name or the date of an existing menu.
 
+**Authorization:**
+- Only the owner of the menu or an administrator can update the menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `menu` exists, no `otherMenu` on date has the same `menu.user` for new date.
 
 **Effects:**
 - Updates the specified attribute of the `menu`.
+- If the date changes, the menu may be automatically moved between weekly carts. If the new date's cart doesn't exist, it is automatically created. The menu is automatically added to the new cart and removed from the old cart if applicable.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body (Update Name):**
 ```json
@@ -924,15 +1031,70 @@
 
 ---
 
+#### POST /api/MenuCollection/deleteMenu
+
+**Description:** Deletes a menu from the collection.
+
+**Authorization:**
+- Only the owner of the menu or an administrator can delete the menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
+**Requirements:**
+- `menu` exists.
+
+**Effects:**
+- Removes `menu` from the set of Menus.
+- The menu is automatically removed from its weekly cart. The corresponding `CompositeOrder` in PurchaseSystem and all its links are automatically deleted. Optimal purchase calculations are automatically updated for the cart.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "menu": "string"
+}
+```
+
+**Success Response Body (Action):**
+```json
+{
+  "success": true
+}
+```
+
+**Error Response Body:**
+```json
+{
+  "error": "string"
+}
+```
+
+---
+
 #### POST /api/MenuCollection/addRecipe
 
 **Description:** Adds a recipe to a menu with a specified scaling factor.
+
+**Authorization:**
+- Only the owner of the menu or an administrator can add recipes to the menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
 
 **Requirements:**
 - `menu` exists, `recipe` exists. `scalingFactor` > 0. `menu` does not already contain `recipe`.
 
 **Effects:**
 - Adds the `recipe` with its `scalingFactor` to `menu.menuRecipes`.
+- The menu's PurchaseSystem `CompositeOrder` is automatically linked to the recipe's `CompositeOrder` with the specified scaling factor. Optimal purchase calculations are automatically updated for the menu and all parent carts.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -963,11 +1125,22 @@
 
 **Description:** Removes a recipe from a menu.
 
+**Authorization:**
+- Only the owner of the menu or an administrator can remove recipes from the menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `menu` exists, `recipe` exists in `menu.menuRecipes`.
 
 **Effects:**
 - Removes `recipe` from `menu.menuRecipes`.
+- The link between the menu's PurchaseSystem `CompositeOrder` and the recipe's `CompositeOrder` is automatically removed. Optimal purchase calculations are automatically updated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -997,11 +1170,22 @@
 
 **Description:** Changes the scaling factor for an existing recipe within a menu.
 
+**Authorization:**
+- Only the owner of the menu or an administrator can change recipe scaling in the menu.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `menu` exists, `recipe` exists in `menu.menuRecipes`. `newScalingFactor` > 0.
 
 **Effects:**
 - Updates the `scalingFactor` for `recipe` within `menu.menuRecipes` to `newScalingFactor`.
+- The scale factor linking the menu's PurchaseSystem `CompositeOrder` to the recipe's `CompositeOrder` is automatically updated. Optimal purchase calculations are automatically updated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -1142,16 +1326,15 @@
 **Description:** Returns the menu ID associated with a specific date and owner.
 
 **Requirements:**
-- A menu exists for `date` owned by `owner`.
+- A menu exists for `date`.
 
 **Effects:**
-- Returns the `Menu` ID associated with that `date` and `owner`.
+- Returns the `Menu` ID associated with that `date`.
 
 **Request Body:**
 ```json
 {
   "date": "string",
-  "owner": "string"
 }
 ```
 
@@ -1575,7 +1758,7 @@
 
 #### POST /api/PurchaseSystem/calculateOptimalPurchase
 
-**Description:** Calculates the most cost-effective combination of `AtomicOrder`s to fulfill all quantities required by a set of `CompositeOrder`s, updating their total cost and optimal purchase maps.
+**Description:** Calculates the most cost-effective combination of `AtomicOrder`s to fulfill all quantities required by a set of `CompositeOrder`s, updating their total cost and optimal purchase maps. Note: This calculation is automatically triggered when orders are modified (e.g., when purchase options, ingredients, or recipes are added/updated/removed), so manual calls are typically not necessary.
 
 **Requirements:**
 - Every CompositeOrder in `compositeOrder` exists.
@@ -1643,7 +1826,7 @@
 
 #### POST /api/PurchaseSystem/_getOrderByAssociateID
 
-**Description:** Returns any order (Atomic, Select, or Composite) associated with a given external ID.
+**Description:** Returns any order (Atomic, Select, or Composite) associated with a given external ID. This endpoint can be used to query orders created automatically for items, recipes, menus, and carts by using their respective IDs as the `associateID`.
 
 **Requirements:**
 - Order exists with `associateID`.
@@ -1725,7 +1908,7 @@
 [
   {
     "optimalPurchase": {
-      "atomicOrderId": "number"
+      "atomicOrderId": "number" // mapping order to quantity number
     }
   }
 ]
@@ -1792,6 +1975,7 @@
 
 **Effects:**
 - Calculates the `startDate` as the Sunday of the week containing `dateInWeek` and `endDate` as the Saturday of the same week. Creates a new `Cart` with this `startDate` and `endDate`. It will have an empty set of `menus`.
+- A corresponding `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the cart ID. Query via `/api/PurchaseSystem/_getOrderByAssociateID`.
 
 **Request Body:**
 ```json
@@ -1825,6 +2009,7 @@
 
 **Effects:**
 - Deletes `cart`.
+- The corresponding `CompositeOrder` in PurchaseSystem and all its links are automatically deleted. Optimal purchase calculations are automatically updated.
 
 **Request Body:**
 ```json
@@ -1858,6 +2043,7 @@
 
 **Effects:**
 - Adds `menu` to `cart` whose `startDate` and `endDate` range *contains* `menuDate`. If such a cart doesn't exist, a createCart for that date and then add `menu` to the new cart. Return `cart` menu was added to.
+- The cart's PurchaseSystem `CompositeOrder` is automatically linked to the menu's `CompositeOrder`. Optimal purchase calculations are automatically updated for the cart.
 
 **Request Body:**
 ```json
@@ -1892,6 +2078,7 @@
 
 **Effects:**
 - Removes `menu` from `cart.menus`. Return `cart` that menu was removed from.
+- The link between the cart's PurchaseSystem `CompositeOrder` and the menu's `CompositeOrder` is automatically removed. Optimal purchase calculations are automatically updated.
 
 **Request Body:**
 ```json
@@ -2024,6 +2211,41 @@
 
 ---
 
+#### POST /api/WeeklyCart/_getCartWithMenu
+
+**Description:** Returns the weekly cart that contains the specified menu in its menus array.
+
+**Requirements:**
+- true.
+
+**Effects:**
+- Returns the `cart` that contains `menu` in its `menus` array. If no such cart exists, returns empty array.
+
+**Request Body:**
+```json
+{
+  "menu": "string"
+}
+```
+
+**Success Response Body (Query):**
+```json
+[
+  {
+    "cart": "string"
+  }
+]
+```
+
+**Error Response Body:**
+```json
+{
+  "error": "string"
+}
+```
+
+---
+
 ## API Specification: CookBook Concept
 
 **Purpose:** Store and manage definitions of recipes, including their ingredients, instructions, and ownership, enabling reuse and duplication for chefs.
@@ -2041,6 +2263,7 @@
 
 **Effects:**
 - Creates a new `Recipe` with the given `name`, empty instructions, default `servingQuantity` (e.g., 1), empty `dishType`, `owner` set to `user`, and no ingredients. Returns the new `Recipe` ID.
+- A corresponding `CompositeOrder` is automatically created in PurchaseSystem with `associateID` matching the recipe ID. Query via `/api/PurchaseSystem/_getOrderByAssociateID`.
 
 **Request Body:**
 ```json
@@ -2070,11 +2293,21 @@
 
 **Description:** Updates a specific attribute (instructions, serving quantity, dish type, or name) of a recipe.
 
+**Authorization:**
+- Only the owner of the recipe or an administrator can update the recipe.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `recipe` exists. (`servingQuantity` > 0 // Only for servingQuantity update).
 
 **Effects:**
 - Updates the specified attribute of the `recipe`.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body (Update Instructions):**
 ```json
@@ -2163,11 +2396,22 @@
 
 **Description:** Adds a new ingredient with specified details to a recipe.
 
+**Authorization:**
+- Only the owner of the recipe or an administrator can add ingredients to the recipe.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `recipe` exists. `name` is not an existing ingredient in recipe. `quantity` > 0. `units` is not empty.
 
 **Effects:**
 - New `Ingredient` with the given `name`, `quantity`, and `units` is added to `recipe.ingredients`.
+- If an item with the ingredient name exists in StoreCatalog, the recipe's PurchaseSystem `CompositeOrder` is automatically linked to that item's `SelectOrder` with the ingredient quantity as the scale factor. Optimal purchase calculations are automatically updated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -2199,11 +2443,22 @@
 
 **Description:** Updates the quantity and units of an existing ingredient in a recipe.
 
+**Authorization:**
+- Only the owner of the recipe or an administrator can update ingredients in the recipe.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `recipe` exists. `recipe.ingredients` contaings ingredient with `name`. `quantity` > 0. `units` is not empty.
 
 **Effects:**
 - Ingredient with `name` in `recipe.ingredients` has parameters `quantity` and `units` updated.
+- The scale factor linking the recipe's PurchaseSystem `CompositeOrder` to the ingredient's `SelectOrder` is automatically updated. Optimal purchase calculations are automatically updated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json
@@ -2235,11 +2490,22 @@
 
 **Description:** Removes a specified ingredient from a recipe.
 
+**Authorization:**
+- Only the owner of the recipe or an administrator can remove ingredients from the recipe.
+- Request must include `Authorization: Bearer <user-id>` header identifying the authenticated user making the request.
+
 **Requirements:**
 - `recipe` exists. An ingredient with `name` exists in `recipe.ingredients`.
 
 **Effects:**
 - Removes the `Ingredient` with the given `name` from `recipe.ingredients`.
+- The link between the recipe's PurchaseSystem `CompositeOrder` and the ingredient's `SelectOrder` is automatically removed. Optimal purchase calculations are automatically updated.
+
+**Request Headers:**
+```
+Authorization: Bearer <user-id>
+Content-Type: application/json
+```
 
 **Request Body:**
 ```json

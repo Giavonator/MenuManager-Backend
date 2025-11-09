@@ -111,13 +111,29 @@ export class SyncConcept {
             frames,
           );
           if (sync.where !== undefined) {
-            const maybeFrames = sync.where(frames);
-            frames = maybeFrames instanceof Promise
-              ? await maybeFrames
-              : maybeFrames;
-            this.logFrames(`After processing \`where\`:`, frames);
+            try {
+              const maybeFrames = sync.where(frames);
+              frames = maybeFrames instanceof Promise
+                ? await maybeFrames
+                : maybeFrames;
+              this.logFrames(`After processing \`where\`:`, frames);
+            } catch (error) {
+              const errorMessage = error instanceof Error
+                ? error.message
+                : String(error);
+              console.error(
+                `[SyncEngine] Error in where clause for sync ${sync.sync}:`,
+                errorMessage,
+              );
+              if (error instanceof Error && error.stack) {
+                console.error(`[SyncEngine] Stack trace:`, error.stack);
+              }
+              throw error;
+            }
           }
-          await this.addThen(frames, sync, actionSymbols);
+          if (frames.length > 0) {
+            await this.addThen(frames, sync, actionSymbols);
+          }
         }
       }
     }
@@ -134,7 +150,9 @@ export class SyncConcept {
     let frames = new Frames();
     const whens = sync.when;
     const flowActions = await this.Action._getByFlow(record.flow);
-    if (flowActions === undefined) return [frames, []];
+    if (flowActions === undefined) {
+      return [frames, []];
+    }
     let i = 0;
     const actionSymbols: symbol[] = [];
     frames.push({ [flow]: record.flow });
@@ -161,6 +179,9 @@ export class SyncConcept {
         }
       }
       frames = newFrames;
+      if (frames.length === 0) {
+        break;
+      }
     }
     return [frames, actionSymbols];
   }
@@ -188,26 +209,58 @@ export class SyncConcept {
         }
       }
       for (const then of sync.then) {
-        const matched = this.matchThen(then, frame);
-        const id = matched[actionId];
+        try {
+          const matched = this.matchThen(then, frame);
+          const id = matched[actionId];
 
-        if (id === undefined || typeof id !== "string") {
-          throw new Error(
-            "Action produced from \`then\` is missing an id.",
+          if (id === undefined || typeof id !== "string") {
+            throw new Error(
+              "Action produced from \`then\` is missing an id.",
+            );
+          }
+          for (const whenAction of whenActions) {
+            whenAction.synced?.set(sync.sync, id);
+          }
+          thens.push([then.action, matched]);
+        } catch (error) {
+          const errorMessage = error instanceof Error
+            ? error.message
+            : String(error);
+          console.error(
+            `[SyncEngine] Error matching then pattern for sync ${sync.sync}:`,
+            errorMessage,
           );
+          if (error instanceof Error && error.stack) {
+            console.error(`[SyncEngine] Stack trace:`, error.stack);
+          }
+          throw error;
         }
-        for (const whenAction of whenActions) {
-          whenAction.synced?.set(sync.sync, id);
-        }
-        thens.push([then.action, matched]);
       }
     }
     // Await all actions
+    if (this.logging === Logging.VERBOSE) {
+      console.log(`[SyncEngine] ${sync.sync}: Executing ${thens.length} then action(s)`);
+    }
     for (const [thenAction, thenRecord] of thens) {
+      const actionName = thenAction?.name || "unknown";
       if (this.logging === Logging.VERBOSE) {
         console.log(`${sync.sync}: THEN ${thenAction}`, thenRecord);
       }
-      await thenAction(thenRecord);
+      try {
+        await thenAction(thenRecord);
+      } catch (error) {
+        const errorMessage = error instanceof Error
+          ? error.message
+          : String(error);
+        console.error(
+          `[SyncEngine] Error executing then action ${actionName} for sync ${sync.sync}:`,
+          errorMessage,
+        );
+        if (error instanceof Error && error.stack) {
+          console.error(`[SyncEngine] Stack trace:`, error.stack);
+        }
+        throw error;
+      }
     }
   }
   matchThen(then: ActionPattern, frame: Frame) {
@@ -239,40 +292,58 @@ export class SyncConcept {
   ) {
     let newFrame = { ...frame };
     // Match concept and action -> TODO: Support variable concept/action
-    if (
-      record.concept !== when.concept ||
-      record.action !== when.action
-    ) return;
+    if (record.concept !== when.concept) {
+      return;
+    }
+    if (record.action !== when.action) {
+      return;
+    }
+    // Match input pattern
     for (const [key, value] of Object.entries(when.input)) {
       const recordValue = record.input[key];
-      if (recordValue === undefined) return;
+      if (recordValue === undefined) {
+        return;
+      }
       if (typeof value === "symbol") {
         const bound = frame[value];
         if (bound === undefined) {
           newFrame = { ...newFrame, [value]: recordValue };
         } else {
-          if (bound !== recordValue) return;
+          if (bound !== recordValue) {
+            return;
+          }
         }
       } else {
-        if (recordValue !== value) return;
+        if (recordValue !== value) {
+          return;
+        }
       }
     }
     if (when.output === undefined) {
       throw new Error(`When pattern: ${when} is missing output pattern.`);
     }
+    // Match output pattern
     for (const [key, value] of Object.entries(when.output)) {
-      if (record.output === undefined) return;
+      if (record.output === undefined) {
+        return;
+      }
       const recordValue = record.output[key];
-      if (recordValue === undefined) return;
+      if (recordValue === undefined) {
+        return;
+      }
       if (typeof value === "symbol") {
         const bound = frame[value];
         if (bound === undefined) {
           newFrame = { ...newFrame, [value]: recordValue };
         } else {
-          if (bound !== recordValue) return;
+          if (bound !== recordValue) {
+            return;
+          }
         }
       } else {
-        if (recordValue !== value) return;
+        if (recordValue !== value) {
+          return;
+        }
       }
     }
     return { ...newFrame, [actionSymbol]: record.id };

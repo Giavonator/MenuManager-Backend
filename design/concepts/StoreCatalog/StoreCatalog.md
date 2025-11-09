@@ -3,25 +3,25 @@
 
 **concept** StoreCatalog [AtomicOrder, SelectOrder]
 
-**purpose** Manage a comprehensive catalog of purchasable ingredients, their alternative names, and available purchase options across different stores.
+**purpose** Manage a comprehensive catalog of purchasable ingredients, their names, and available purchase options across different stores.
 
-**principle** An administrator `createItem` for a new ingredient like "ground pepper". They then discover multiple `PurchaseOption`s for it, such as "3 lbs for $5.99 at Sprout's" and "1 lb for $2.50 at Trader Joe's", and `addPurchaseOption` for each. Later, another user refers to "pepper", so the administrator `addItemName` "pepper" as an alias. Once verified, the administrator `confirmItem` at to mark that it is official.
+**principle** An administrator `createItem` for a new ingredient like "ground pepper". They then discover multiple `PurchaseOption`s for it, such as "3 lbs for $5.99 at Sprout's" and "1 lb for $2.50 at Trader Joe's", and `addPurchaseOption` for each. Later, if the name needs to be changed, the administrator `updateItemName` to update it. Once verified, the administrator `confirmPurchaseOption` to mark that it is official.
 
 **state**\
-  a set of Item with\
-    a names Set of String // Ex. {'pepper', 'ground pepper', 'course pepper'}\
-    a purchaseOptions Set of PurchaseOption\
-  a set of PurchaseOption with\
-    a store String // Ex. "Sprout's"\
-    a quantity Float // Ex. 3.0\
-    a units String // Ex. "lbs", "oz", "count"\
-    a price Float // Ex. 5.99\
-    a confirmed Bool\
+  a set of Item with\
+    a name String // Ex. "ground pepper"\
+    a purchaseOptions Set of PurchaseOption\
+  a set of PurchaseOption with\
+    a store String // Ex. "Sprout's"\
+    a quantity Float // Ex. 3.0\
+    a units String // Ex. "lbs", "oz", "count"\
+    a price Float // Ex. 5.99\
+    a confirmed Bool\
 
 **actions**\
-  createItem (primaryName: String): (item: Item)\
-    **requires** no Item already exists with `primaryName` in its names set.\
-    **effects** Creates a new `Item` with `primaryName` in its `names` set and no empty `purchaseOptions`. Returns the new `Item` ID.
+  createItem (primaryName: String): (item: Item)\
+    **requires** no Item already exists with `primaryName` as its name.\
+    **effects** Creates a new `Item` with `primaryName` as its `name` and an empty `purchaseOptions` set. Returns the new `Item` ID.
 
   deleteItem (item: Item)\
     **requires** `item` exists.\
@@ -39,36 +39,32 @@
     **requires** `purchaseOption` exists. `quantity` > 0, `price` >= 0 for respective updates.\
     **effects** Updates the specified attribute of the `purchaseOption`.
 
-  removePurchaseOption (item: Item, purchaseOption: PurchaseOption)\
-    **requires** `item` exists, `purchaseOption` is associated with `item`.\
-    **effects** Removes `purchaseOption` from `item`'s associated `PurchaseOption`s.
+  removePurchaseOption (item: Item, purchaseOption: PurchaseOption)\
+    **requires** `item` exists, `purchaseOption` is associated with `item`.\
+    **effects** Removes `purchaseOption` from `item`'s associated `PurchaseOption`s.
 
-  addItemName (item: Item, name: String)\
-    **requires** `item` exists, `name` is not already an alias for `item` (i.e., not in `item.names`).\
-    **effects** Adds `name` to the `names` set of `item`.
+  updateItemName (item: Item, name: String)\
+    **requires** `item` exists, no other Item already exists with `name` as its name.\
+    **effects** Updates the `name` of `item` to the specified `name`.
 
-  removeItemName (item: Item, name: String)\
-    **requires** `item` exists, `name` is in the `names` set of `item`, and `name` is not the only name for the `item`.\
-    **effects** Removes `name` from the `names` set of `item`.
-
-  confirmPurchaseOption (purchaseOption: PurchaseOption)\
+  confirmPurchaseOption (purchaseOption: PurchaseOption)\
     **requires** `purchaseOption` exists, `purchaseOption` is not already `confirmed`.\
     **effects** Sets `purchaseOption.confirmed` to `true`.
 
 **queries**
-  _getItemByName (name: String): (item: Item)\
-    **requires** An item exists with `name` in its `names` set.\
-    **effects** Returns the `Item` ID with the given name.
+  _getItemByName (name: String): (item: Item)\
+    **requires** An item exists with `name` as its name.\
+    **effects** Returns the `Item` ID with the given name.
 
-  _getItemByPurchaseOption (purchaseOption: PurchaseOption): (item: Item)\
-    **requires** An item exists with `purchaseOption` in its `purchaseOption` set.\
-    **effects** Returns the `Item` ID with the given purchaseOption.
+  _getItemName (item: Item): (name: String)\
+    **requires** `item` exists.\
+    **effects** Returns the `name` of the given `item`.
 
-  _getItemNames (item: Item): (names: Set of String)\
-    **requires** `item` exists.\
-    **effects** Returns the associated details of the item.
+  _getItemByPurchaseOption (purchaseOption: PurchaseOption): (item: Item)\
+    **requires** An item exists with `purchaseOption` in its `purchaseOption` set.\
+    **effects** Returns the `Item` ID with the given purchaseOption.
 
-  _getItemPurchaseOptions (item: Item): (purchaseOptions: Set of PurchaseOption)\
+  _getItemPurchaseOptions (item: Item): (purchaseOptions: Set of PurchaseOption)\
     **requires** `item` exists.\
     **effects** Returns the set of all `PurchaseOption`s for the given `item`.
 

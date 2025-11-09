@@ -132,11 +132,11 @@ Before accessing any data, always determine if the operation was successful or i
     ```
     Here, `"recipe" in createResult` is used as a type guard to confirm the success case.
 
-*   **For successful actions returning `Empty` (e.g., `Result<Empty>`):**
+*   **For successful actions returning `{ success: true }` (e.g., `Result<{ success: true }>`):**
     ```typescript
     const addPastaResult = await cookBook.addRecipeIngredient({ /* ... */ });
-    assertAndLog("error" in addPastaResult, false, "Adding pasta should succeed (no error)", stepMessage, ++checkIndex);
-    // No specific data to extract, just verify no error.
+    assertAndLog("success" in addPastaResult, true, "Adding pasta should succeed", stepMessage, ++checkIndex);
+    // Verify the success response.
     ```
 
 *   **For successful queries returning an array (e.g., `Result<Item[]>`):**

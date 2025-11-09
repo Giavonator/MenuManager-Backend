@@ -195,67 +195,48 @@ Deno.test("StoreCatalog - Principle Fulfillment", async (t) => {
     },
   );
 
-  await t.step("3. Add 'pepper' as an alias for 'ground pepper'", async () => {
-    const stepMessage = "3. Add 'pepper' as an alias for 'ground pepper'";
+  await t.step("3. Update item name from 'ground pepper' to 'pepper'", async () => {
+    const stepMessage = "3. Update item name from 'ground pepper' to 'pepper'";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
-    const addAliasResult = await catalog.addItemName({
+    const updateNameResult = await catalog.updateItemName({
       item: groundPepperItem,
       name: "pepper",
     });
     assertAndLog(
-      "error" in addAliasResult,
-      false,
-      "Adding alias 'pepper' should succeed",
+      "success" in updateNameResult,
+      true,
+      "Updating item name to 'pepper' should succeed",
       stepMessage,
       ++checkIndex,
     );
 
-    const namesQuery = await catalog._getItemNames({ item: groundPepperItem });
+    // Verify item can be found by new name
+    const queryByNameResult = await catalog._getItemByName({ name: "pepper" });
     assertAndLog(
-      "error" in namesQuery,
+      "error" in queryByNameResult,
       false,
-      "Query for item names should not error",
-      stepMessage,
-      ++checkIndex,
-    );
-    const itemNames = (namesQuery as { names: string[] }[])[0].names;
-    assertAndLog(
-      itemNames.includes("ground pepper"),
-      true,
-      "Item names should include 'ground pepper'",
+      "Query by name 'pepper' should not return an error",
       stepMessage,
       ++checkIndex,
     );
     assertAndLog(
-      itemNames.includes("pepper"),
-      true,
-      "Item names should include 'pepper'",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      itemNames.length,
-      2,
-      "Item should have two names",
-      stepMessage,
-      ++checkIndex,
-    );
-
-    // Verify item can be found by new alias
-    const queryByAliasResult = await catalog._getItemByName({ name: "pepper" });
-    assertAndLog(
-      "error" in queryByAliasResult,
-      false,
-      "Query by alias 'pepper' should not return an error",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (queryByAliasResult as { item: ID }[])[0].item,
+      (queryByNameResult as { item: ID }[])[0].item,
       groundPepperItem,
-      "Queried item by alias should match",
+      "Queried item by name should match",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify old name no longer works
+    const queryByOldNameResult = await catalog._getItemByName({
+      name: "ground pepper",
+    });
+    assertAndLog(
+      "error" in queryByOldNameResult,
+      true,
+      "Query by old name 'ground pepper' should return an error",
       stepMessage,
       ++checkIndex,
     );
@@ -270,8 +251,8 @@ Deno.test("StoreCatalog - Principle Fulfillment", async (t) => {
       purchaseOption: sproutsOption,
     });
     assertAndLog(
-      "error" in confirmResult,
-      false,
+      "success" in confirmResult,
+      true,
       "Confirming Sprout's option should succeed",
       stepMessage,
       ++checkIndex,
@@ -337,17 +318,17 @@ Deno.test("StoreCatalog - Action: createItem", async (t) => {
       ++checkIndex,
     );
 
-    const itemNames = await catalog._getItemNames({ item: itemId });
+    const itemByName = await catalog._getItemByName({ name: "Flour" });
     assertAndLog(
-      "names" in (itemNames as any)[0],
-      true,
-      "Item names should be retrievable",
+      "error" in itemByName,
+      false,
+      "Item should be findable by name",
       stepMessage,
       ++checkIndex,
     );
     assertAndLog(
-      (itemNames as { names: string[] }[])[0].names,
-      ["Flour"],
+      (itemByName as { item: ID }[])[0].item,
+      itemId,
       "Item should have 'Flour' as its name",
       stepMessage,
       ++checkIndex,
@@ -456,16 +437,16 @@ Deno.test("StoreCatalog - Action: deleteItem", async (t) => {
 
       const deleteResult = await catalog.deleteItem({ item: itemToDelete });
       assertAndLog(
-        "error" in deleteResult,
-        false,
-        "Deletion should not return an error",
+        "success" in deleteResult,
+        true,
+        "Deletion should succeed",
         stepMessage,
         ++checkIndex,
       );
       assertAndLog(
-        Object.keys(deleteResult).length,
-        0,
-        "Successful deletion returns empty object",
+        (deleteResult as { success: true }).success,
+        true,
+        "Successful deletion returns success: true",
         stepMessage,
         ++checkIndex,
       );
@@ -741,8 +722,8 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
       quantity: 2,
     });
     assertAndLog(
-      "error" in updateResult,
-      false,
+      "success" in updateResult,
+      true,
       "Quantity update should succeed",
       stepMessage,
       ++checkIndex,
@@ -770,8 +751,8 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
       units: "slices",
     });
     assertAndLog(
-      "error" in updateResult,
-      false,
+      "success" in updateResult,
+      true,
       "Units update should succeed",
       stepMessage,
       ++checkIndex,
@@ -799,8 +780,8 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
       price: 3.00,
     });
     assertAndLog(
-      "error" in updateResult,
-      false,
+      "success" in updateResult,
+      true,
       "Price update should succeed",
       stepMessage,
       ++checkIndex,
@@ -828,8 +809,8 @@ Deno.test("StoreCatalog - Action: updatePurchaseOption", async (t) => {
       store: "Supermarket",
     });
     assertAndLog(
-      "error" in updateResult,
-      false,
+      "success" in updateResult,
+      true,
       "Store update should succeed",
       stepMessage,
       ++checkIndex,
@@ -981,9 +962,9 @@ Deno.test("StoreCatalog - Action: removePurchaseOption", async (t) => {
       purchaseOption: poId1,
     });
     assertAndLog(
-      "error" in removeResult,
-      false,
-      "Removal should not return an error",
+      "success" in removeResult,
+      true,
+      "Removal should succeed",
       stepMessage,
       ++checkIndex,
     );
@@ -1097,101 +1078,103 @@ Deno.test("StoreCatalog - Action: removePurchaseOption", async (t) => {
   await client.close();
 });
 
-Deno.test("StoreCatalog - Action: addItemName and removeItemName", async (t) => {
+Deno.test("StoreCatalog - Action: updateItemName", async (t) => {
   printTestHeader(t.name);
   const [db, client] = await testDb();
   const catalog = new StoreCatalogConcept(db);
 
   let itemId: ID;
 
-  await t.step("1. Setup: Create item with a primary name", async () => {
-    const stepMessage = "1. Setup: Create item with a primary name";
+  await t.step("1. Setup: Create item with a name", async () => {
+    const stepMessage = "1. Setup: Create item with a name";
     printStepHeader(stepMessage);
     const createResult = await catalog.createItem({ primaryName: "Tomato" });
     itemId = (createResult as { item: ID }).item;
-    const names = await catalog._getItemNames({ item: itemId });
+    const itemByName = await catalog._getItemByName({ name: "Tomato" });
     assertAndLog(
-      (names as { names: string[] }[])[0].names,
-      ["Tomato"],
-      "Item should start with one name",
+      (itemByName as { item: ID }[])[0].item,
+      itemId,
+      "Item should start with name 'Tomato'",
       stepMessage,
       0,
     );
   });
 
-  await t.step("2. Successful addition of an alias", async () => {
-    const stepMessage = "2. Successful addition of an alias";
+  await t.step("2. Successful update of item name", async () => {
+    const stepMessage = "2. Successful update of item name";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
-    const addAliasResult = await catalog.addItemName({
+    const updateResult = await catalog.updateItemName({
       item: itemId,
       name: "Roma Tomato",
     });
     assertAndLog(
-      "error" in addAliasResult,
-      false,
-      "Adding alias should not return an error",
+      "success" in updateResult,
+      true,
+      "Updating name should succeed",
       stepMessage,
       ++checkIndex,
     );
 
-    const names = await catalog._getItemNames({ item: itemId });
-    const currentNames = (names as { names: string[] }[])[0].names;
+    const itemByName = await catalog._getItemByName({ name: "Roma Tomato" });
     assertAndLog(
-      currentNames.length,
-      2,
-      "Item should now have two names",
+      (itemByName as { item: ID }[])[0].item,
+      itemId,
+      "Item should now have name 'Roma Tomato'",
       stepMessage,
       ++checkIndex,
     );
+
+    const itemByOldName = await catalog._getItemByName({ name: "Tomato" });
     assertAndLog(
-      currentNames.includes("Tomato"),
+      "error" in itemByOldName,
       true,
-      "'Tomato' should still be present",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      currentNames.includes("Roma Tomato"),
-      true,
-      "'Roma Tomato' should be added",
+      "Old name 'Tomato' should no longer work",
       stepMessage,
       ++checkIndex,
     );
   });
 
-  await t.step("3. Failure to add existing alias", async () => {
-    const stepMessage = "3. Failure to add existing alias";
+  await t.step("3. Failure to update to name that already exists", async () => {
+    const stepMessage = "3. Failure to update to name that already exists";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
-    const result = await catalog.addItemName({ item: itemId, name: "Tomato" });
+    // Create another item
+    const createResult2 = await catalog.createItem({ primaryName: "Cherry Tomato" });
+    const itemId2 = (createResult2 as { item: ID }).item;
+
+    // Try to update first item to second item's name
+    const result = await catalog.updateItemName({
+      item: itemId,
+      name: "Cherry Tomato",
+    });
     assertAndLog(
       "error" in result,
       true,
-      "Should return an error for existing alias",
+      "Should return an error for duplicate name",
       stepMessage,
       ++checkIndex,
     );
     assertAndLog(
       (result as { error: string }).error,
-      `Name "Tomato" is already an alias for Item "${itemId}".`,
+      `An item with the name "Cherry Tomato" already exists.`,
       "Correct error message",
       stepMessage,
       ++checkIndex,
     );
   });
 
-  await t.step("4. Failure to add alias for non-existent item", async () => {
-    const stepMessage = "4. Failure to add alias for non-existent item";
+  await t.step("4. Failure to update non-existent item", async () => {
+    const stepMessage = "4. Failure to update non-existent item";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
     const nonExistentItem = "nonExistentItem" as ID;
-    const result = await catalog.addItemName({
+    const result = await catalog.updateItemName({
       item: nonExistentItem,
-      name: "Cherry Tomato",
+      name: "New Name",
     });
     assertAndLog(
       "error" in result,
@@ -1203,98 +1186,6 @@ Deno.test("StoreCatalog - Action: addItemName and removeItemName", async (t) => 
     assertAndLog(
       (result as { error: string }).error,
       `Item with ID "${nonExistentItem}" not found.`,
-      "Correct error message",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
-  await t.step("5. Successful removal of an alias", async () => {
-    const stepMessage = "5. Successful removal of an alias";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-
-    const removeAliasResult = await catalog.removeItemName({
-      item: itemId,
-      name: "Roma Tomato",
-    });
-    assertAndLog(
-      "error" in removeAliasResult,
-      false,
-      "Removing alias should not return an error",
-      stepMessage,
-      ++checkIndex,
-    );
-
-    const names = await catalog._getItemNames({ item: itemId });
-    const currentNames = (names as { names: string[] }[])[0].names;
-    assertAndLog(
-      currentNames.length,
-      1,
-      "Item should now have one name",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      currentNames.includes("Tomato"),
-      true,
-      "'Tomato' should still be present",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      currentNames.includes("Roma Tomato"),
-      false,
-      "'Roma Tomato' should be removed",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
-  await t.step("6. Failure to remove non-existent alias", async () => {
-    const stepMessage = "6. Failure to remove non-existent alias";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-
-    const result = await catalog.removeItemName({
-      item: itemId,
-      name: "Cherry Tomato",
-    });
-    assertAndLog(
-      "error" in result,
-      true,
-      "Should return an error for non-existent alias",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (result as { error: string }).error,
-      `Name "Cherry Tomato" is not an alias for Item "${itemId}".`,
-      "Correct error message",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
-  await t.step("7. Failure to remove the only name of an item", async () => {
-    const stepMessage = "7. Failure to remove the only name of an item";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-
-    const result = await catalog.removeItemName({
-      item: itemId,
-      name: "Tomato",
-    });
-    assertAndLog(
-      "error" in result,
-      true,
-      "Should return an error for removing the only name",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (result as { error: string }).error,
-      `Cannot remove the only name for Item "${itemId}".`,
       "Correct error message",
       stepMessage,
       ++checkIndex,
@@ -1347,9 +1238,9 @@ Deno.test("StoreCatalog - Action: confirmPurchaseOption", async (t) => {
       purchaseOption: poId,
     });
     assertAndLog(
-      "error" in confirmResult,
-      false,
-      "Confirmation should not return an error",
+      "success" in confirmResult,
+      true,
+      "Confirmation should succeed",
       stepMessage,
       ++checkIndex,
     );
@@ -1433,21 +1324,20 @@ Deno.test("StoreCatalog - Query: _getItemByName", async (t) => {
   let orangeId: ID;
 
   await t.step(
-    "1. Setup: Create items with various names/aliases",
+    "1. Setup: Create items with various names",
     async () => {
-      const stepMessage = "1. Setup: Create items with various names/aliases";
+      const stepMessage = "1. Setup: Create items with various names";
       printStepHeader(stepMessage);
       const createOrange = await catalog.createItem({ primaryName: "Orange" });
       orangeId = (createOrange as { item: ID }).item;
-      await catalog.addItemName({ item: orangeId, name: "Navel Orange" });
 
       await catalog.createItem({ primaryName: "Apple" });
-      console.log("    Created 'Orange' (aliases: 'Navel Orange') and 'Apple'");
+      console.log("    Created 'Orange' and 'Apple'");
     },
   );
 
-  await t.step("2. Query by primary name", async () => {
-    const stepMessage = "2. Query by primary name";
+  await t.step("2. Query by name", async () => {
+    const stepMessage = "2. Query by name";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
@@ -1475,37 +1365,8 @@ Deno.test("StoreCatalog - Query: _getItemByName", async (t) => {
     );
   });
 
-  await t.step("3. Query by alias", async () => {
-    const stepMessage = "3. Query by alias";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-
-    const result = await catalog._getItemByName({ name: "Navel Orange" });
-    assertAndLog(
-      "error" in result,
-      false,
-      "Query for 'Navel Orange' should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (result as { item: ID }[]).length,
-      1,
-      "Should find one item by alias",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (result as { item: ID }[])[0].item,
-      orangeId,
-      "Should return the correct item ID for alias",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
-  await t.step("4. Query for non-existent name", async () => {
-    const stepMessage = "4. Query for non-existent name";
+  await t.step("3. Query for non-existent name", async () => {
+    const stepMessage = "3. Query for non-existent name";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
@@ -1520,6 +1381,110 @@ Deno.test("StoreCatalog - Query: _getItemByName", async (t) => {
     assertAndLog(
       (result as { error: string }).error,
       `Item with name "Banana" not found.`,
+      "Correct error message",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await client.close();
+});
+
+Deno.test("StoreCatalog - Query: _getItemName", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const catalog = new StoreCatalogConcept(db);
+
+  let itemId: ID;
+
+  await t.step("1. Setup: Create item with a name", async () => {
+    const stepMessage = "1. Setup: Create item with a name";
+    printStepHeader(stepMessage);
+    const createResult = await catalog.createItem({ primaryName: "Banana" });
+    itemId = (createResult as { item: ID }).item;
+    console.log(`    Created Item: ${itemId} with name "Banana"`);
+  });
+
+  await t.step("2. Query item name by ID", async () => {
+    const stepMessage = "2. Query item name by ID";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const result = await catalog._getItemName({ item: itemId });
+    assertAndLog(
+      "error" in result,
+      false,
+      "Query for item name should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (result as { name: string }[]).length,
+      1,
+      "Should return one result",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (result as { name: string }[])[0].name,
+      "Banana",
+      "Should return the correct item name",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("3. Query name after updating item name", async () => {
+    const stepMessage = "3. Query name after updating item name";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const updateResult = await catalog.updateItemName({
+      item: itemId,
+      name: "Yellow Banana",
+    });
+    assertAndLog(
+      "success" in updateResult,
+      true,
+      "Updating item name should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const result = await catalog._getItemName({ item: itemId });
+    assertAndLog(
+      "error" in result,
+      false,
+      "Query for updated item name should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (result as { name: string }[])[0].name,
+      "Yellow Banana",
+      "Should return the updated item name",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("4. Query name for non-existent item", async () => {
+    const stepMessage = "4. Query name for non-existent item";
+    printStepHeader(stepMessage);
+    let checkIndex = 0;
+
+    const nonExistentItem = "nonExistentItem" as ID;
+    const result = await catalog._getItemName({ item: nonExistentItem });
+    assertAndLog(
+      "error" in result,
+      true,
+      "Query for non-existent item should return an error",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (result as { error: string }).error,
+      `Item with ID "${nonExistentItem}" not found.`,
       "Correct error message",
       stepMessage,
       ++checkIndex,
@@ -1614,7 +1579,7 @@ Deno.test("StoreCatalog - Query: _getItemByPurchaseOption", async (t) => {
   await client.close();
 });
 
-Deno.test("StoreCatalog - Query: _getItemNames and _getItemPurchaseOptions", async (t) => {
+Deno.test("StoreCatalog - Query: _getItemPurchaseOptions", async (t) => {
   printTestHeader(t.name);
   const [db, client] = await testDb();
   const catalog = new StoreCatalogConcept(db);
@@ -1624,14 +1589,13 @@ Deno.test("StoreCatalog - Query: _getItemNames and _getItemPurchaseOptions", asy
   let peachPO2: ID;
 
   await t.step(
-    "1. Setup: Create item with names and purchase options",
+    "1. Setup: Create item with purchase options",
     async () => {
       const stepMessage =
-        "1. Setup: Create item with names and purchase options";
+        "1. Setup: Create item with purchase options";
       printStepHeader(stepMessage);
       const createPeach = await catalog.createItem({ primaryName: "Peach" });
       peachId = (createPeach as { item: ID }).item;
-      await catalog.addItemName({ item: peachId, name: "Nectarine" });
 
       const addPO1 = await catalog.addPurchaseOption({
         item: peachId,
@@ -1650,42 +1614,13 @@ Deno.test("StoreCatalog - Query: _getItemNames and _getItemPurchaseOptions", asy
       });
       peachPO2 = (addPO2 as { purchaseOption: ID }).purchaseOption;
       console.log(
-        `    Created Item: ${peachId} with two names and two POs: ${peachPO1}, ${peachPO2}`,
+        `    Created Item: ${peachId} with two POs: ${peachPO1}, ${peachPO2}`,
       );
     },
   );
 
-  await t.step("2. Query item names", async () => {
-    const stepMessage = "2. Query item names";
-    printStepHeader(stepMessage);
-    let checkIndex = 0;
-
-    const result = await catalog._getItemNames({ item: peachId });
-    assertAndLog(
-      "error" in result,
-      false,
-      "Query for names should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (result as { names: string[] }[]).length,
-      1,
-      "Should return one set of names",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      JSON.stringify((result as { names: string[] }[])[0].names.sort()),
-      JSON.stringify(["Nectarine", "Peach"].sort()),
-      "Should return all item names",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
-
-  await t.step("3. Query item purchase options", async () => {
-    const stepMessage = "3. Query item purchase options";
+  await t.step("2. Query item purchase options", async () => {
+    const stepMessage = "2. Query item purchase options";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
@@ -1715,28 +1650,12 @@ Deno.test("StoreCatalog - Query: _getItemNames and _getItemPurchaseOptions", asy
     );
   });
 
-  await t.step("4. Query names/PO for non-existent item", async () => {
-    const stepMessage = "4. Query names/PO for non-existent item";
+  await t.step("3. Query PO for non-existent item", async () => {
+    const stepMessage = "3. Query PO for non-existent item";
     printStepHeader(stepMessage);
     let checkIndex = 0;
 
     const nonExistentItem = "nonExistentItem" as ID;
-    const namesResult = await catalog._getItemNames({ item: nonExistentItem });
-    assertAndLog(
-      "error" in namesResult,
-      true,
-      "Names query for non-existent item should error",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      (namesResult as { error: string }).error,
-      `Item with ID "${nonExistentItem}" not found.`,
-      "Correct error message for names",
-      stepMessage,
-      ++checkIndex,
-    );
-
     const poResult = await catalog._getItemPurchaseOptions({
       item: nonExistentItem,
     });

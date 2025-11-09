@@ -94,13 +94,13 @@ type Item = ID;
 type Label = ID;
 
 type CreateLabelInput = { name }: { name: string };
-type CreateLabelOutput = Result<Empty>;
+type CreateLabelOutput = Result<{ success: true }>;
 
 type AddLabelInput = { item, label }: { item: Item; label: Label };
-type AddLabelOutput = Result<Empty>;
+type AddLabelOutput = Result<{ success: true }>;
 
 type DeleteLabelInput = { item, label }: { item: Item; label: Label };
-type DeleteLabelOutput = Result<Empty>;
+type DeleteLabelOutput = Result<{ success: true }>;
 
 /**
  * a set of Items with
@@ -136,7 +136,7 @@ export default class LabelingConcept {
    */
   createLabel(CreateLabelInput): CreateLabelOutput {
     // todo: create label
-    return {};
+    return { success: true };
   }
   /**
    * addLabel (item: Item, label: Label)
@@ -147,7 +147,7 @@ export default class LabelingConcept {
    */
   addLabel(AddLabelInput): AddLabelOutput {
     // todo: add label
-    return {};
+    return { success: true };
   }
   /**
    * deleteLabel (item: Item, label: Label)
@@ -158,12 +158,12 @@ export default class LabelingConcept {
    */
   deleteLabel(DeleteLabelInput): DeleteLabelOutput {
     // todo: delete label
-    return {};
+    return { success: true };
   }
 }
 ```
 
-Note that even for actions that don't want to return anything, you should return an empty record `{}`. To denote the type of this properly, you can use the provided `Empty` type from `@utils/types.ts` which simply specifies the type as `Record<PropertyKey, never>`.
+Note that for actions that successfully complete but don't return any data, you should return `{ success: true }` following REST API standards. To denote the type of this properly, use `Result<{ success: true }>` instead of `Result<Empty>`. This provides clearer success signaling and allows proper distinction from error responses.
 
 # Dictionaries as arguments and results
 

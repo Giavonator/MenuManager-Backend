@@ -34,11 +34,15 @@
 
 **actions**\
 
-  createSelectOrder (associateID: ID): (selectOrder: SelectOrder)\
-    **requires** No order already exists for `associateID` within this `PurchaseSystem` concept.\
-    **effects** Creates a new `SelectOrder` with `associateID`. Initializes `childAtomicOrders` to empty, `baseQuantity` to -1.0, `baseUnits` to "" (ie. no units yet), `parentOrders` to empty. Returns new `selectOrder` ID.
+  createSelectOrder (associateID: ID): (selectOrder: SelectOrder)\
+    **requires** No order already exists for `associateID` within this `PurchaseSystem` concept.\
+    **effects** Creates a new `SelectOrder` with `associateID`. Initializes `childAtomicOrders` to empty, `baseQuantity` to -1.0, `baseUnits` to "" (ie. no units yet), `parentOrders` to empty. Returns new `selectOrder` ID.
 
-  createAtomicOrder (selectOrder: SelectOrder, associateID: ID, quantity: Float, units: String, price: Float): (atomicOrder: AtomicOrder)\
+  deleteSelectOrder (selectOrder: SelectOrder)\
+    **requires** `selectOrder` exists.\
+    **effects** Calls `removeSelectOrderFromCompositeOrder` for every CompositeOrder in `selectOrder.parentOrders`. Deletes all AtomicOrders in `selectOrder.childAtomicOrders`. Deletes the `selectOrder`. Calls `calculateOptimalPurchase` by passing in the set (set removes duplicates) of every `parentOrder.rootOrder` within `selectOrder.parentOrders`.
+
+  createAtomicOrder (selectOrder: SelectOrder, associateID: ID, quantity: Float, units: String, price: Float): (atomicOrder: AtomicOrder)\
     **requires** `selectOrder` exists. No order already exists for `associateID` within this `PurchaseSystem` concept.\
     **effects** Creates `atomicOrder` with `associateID`, `quantity`, `units`, `price` as arguments and `parentOrder` set to `selectOrder`. Adds `atomicOrder` to `selectOrder.childAtomicOrders`. If this is the first AtomicOrder option for `selectOrder` sets `selectOrder.baseUnits` and `selectOrder.baseQuantity` to `units` and `quantity` respectively, if its a subsequent then no modification to `selectOrder.baseUnits` and `selectOrder.baseQuantity` is necessary. Lastly, calls `calculateOptimalPurchase` by passing in the set (set removes duplicates) of every `parentOrder.rootOrder` within `selectOrder.parentOrders`.
 

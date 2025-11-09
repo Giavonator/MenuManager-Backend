@@ -22,9 +22,9 @@
     **requires** there exists a cart whose `startDate` and `endDate` range *contains* `dateInWeek`.\
     **effects** Deletes `cart`.
 
-  addMenuToCart (menu: Menu, menuDate: Date): (cart: Cart)\
-    **requires** `menu` exists.\
-    **effects** Adds `menu` to `cart` whose `startDate` and `endDate` range *contains* `menuDate`. If such a cart doesn't exist, a createCart for that date and then add `menu` to the new cart. Return `cart` menu was added to.
+  addMenuToCart (menu: Menu, menuDate: Date): (cart: Cart)\
+    **requires** `menu` exists and a `cart` exists whose `startDate` and `endDate` range *contains* `menuDate`.\
+    **effects** Adds `menu` to `cart`. Return `cart` menu was added to.
 
   removeMenuFromCart (menu: Menu): (cart: Cart)\
     **requires** `menu` exists in a `cart.menus`.\
@@ -39,6 +39,10 @@
     **requires** `cart` exists.\
     **effects** Returns the set of all `Menu` IDs associated with the given `cart`.
 
-  _getCartByDate (date: Date): (cart: Cart)\
-    **requires** true.\
-    **effects** Returns the `cart` for that contains `date` between `cart.startDate` and `cart.endDate`. If no such cart exists returns empty.
+  _getCartByDate (date: Date): (cart: Cart)\
+    **requires** true.\
+    **effects** Returns the `cart` for that contains `date` between `cart.startDate` and `cart.endDate`. If no such cart exists returns empty.
+
+  _getCartWithMenu (menu: Menu): (cart: Cart)\
+    **requires** true.\
+    **effects** Returns the `cart` that contains `menu` in its `menus` array. If no such cart exists, returns empty.

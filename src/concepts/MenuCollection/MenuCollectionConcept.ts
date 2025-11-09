@@ -41,20 +41,23 @@ type CreateMenuInput = { name: string; date: Date | string; actingUser: User };
 type CreateMenuOutput = Result<{ menu: ID }>;
 
 type UpdateMenuInput = { menu: ID; name?: string; date?: Date | string };
-type UpdateMenuOutput = Result<Empty>;
+type UpdateMenuOutput = Result<{ success: true }>;
+
+type DeleteMenuInput = { menu: ID };
+type DeleteMenuOutput = Result<{ success: true }>;
 
 type AddRecipeInput = { menu: ID; recipe: Recipe; scalingFactor: number };
-type AddRecipeOutput = Result<Empty>;
+type AddRecipeOutput = Result<{ success: true }>;
 
 type RemoveRecipeInput = { menu: ID; recipe: Recipe };
-type RemoveRecipeOutput = Result<Empty>;
+type RemoveRecipeOutput = Result<{ success: true }>;
 
 type ChangeRecipeScalingInput = {
   menu: ID;
   recipe: Recipe;
   newScalingFactor: number;
 };
-type ChangeRecipeScalingOutput = Result<Empty>;
+type ChangeRecipeScalingOutput = Result<{ success: true }>;
 
 // --- Input/Output Types for Queries ---
 
@@ -236,11 +239,41 @@ export default class MenuCollectionConcept {
         { _id: menu },
         { $set: updateFields },
       );
-      return {};
+      return { success: true };
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error updating menu ${menu}: ${errorMessage}`);
       return { error: `Failed to update menu: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * deleteMenu (menu: Menu)
+   *
+   * **requires** `menu` exists.
+   *
+   * **effects** Removes `menu` from the set of Menus.
+   */
+  async deleteMenu({ menu }: DeleteMenuInput): Promise<DeleteMenuOutput> {
+    try {
+      // Precondition: `menu` exists
+      const existingMenu = await this.menus.findOne({ _id: menu });
+      if (!existingMenu) {
+        return { error: `Menu with ID ${menu} not found.` };
+      }
+
+      // Effect: Removes `menu` from the set of Menus
+      const deleteResult = await this.menus.deleteOne({ _id: menu });
+      if (deleteResult.deletedCount === 0) {
+        // This case should ideally not be reached if findOne succeeded, but good for robustness
+        return { error: `Failed to delete menu with ID ${menu}` };
+      }
+
+      return { success: true };
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`Error deleting menu ${menu}: ${errorMessage}`);
+      return { error: `Failed to delete menu: ${errorMessage}` };
     }
   }
 
@@ -280,7 +313,7 @@ export default class MenuCollectionConcept {
         { _id: menu },
         { $set: { [`menuRecipes.${recipe}`]: scalingFactor } },
       );
-      return {};
+      return { success: true };
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(
@@ -316,7 +349,7 @@ export default class MenuCollectionConcept {
         { _id: menu },
         { $unset: { [`menuRecipes.${recipe}`]: "" } },
       );
-      return {};
+      return { success: true };
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(
@@ -357,7 +390,7 @@ export default class MenuCollectionConcept {
         { _id: menu },
         { $set: { [`menuRecipes.${recipe}`]: newScalingFactor } },
       );
-      return {};
+      return { success: true };
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(

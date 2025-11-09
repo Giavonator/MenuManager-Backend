@@ -174,6 +174,33 @@ export default class RequestingConcept {
       this.pending.delete(request);
     }
   }
+
+  /**
+   * _getRequestInput (request: Request): (input: { path: string; [key: string]: unknown })
+   *
+   * **effects** returns the input associated with the given request from the database.
+   */
+  async _getRequestInput(
+    { request }: { request: Request },
+  ): Promise<Array<{ input: { path: string; [key: string]: unknown } }>> {
+    console.log(`[Query: _getRequestInput] Querying request input for request: ${request}`);
+    try {
+      const requestDoc = await this.requests.findOne({ _id: request });
+      if (!requestDoc) {
+        console.log(`[Query: _getRequestInput] Request ${request} not found in database`);
+        return [];
+      }
+      console.log(`[Query: _getRequestInput] Request ${request} found - input fields:`, Object.keys(requestDoc.input));
+      return [{ input: requestDoc.input }];
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[Query: _getRequestInput] Error querying request ${request}:`, errorMessage);
+      if (error instanceof Error && error.stack) {
+        console.error(`[Query: _getRequestInput] Stack trace:`, error.stack);
+      }
+      throw error;
+    }
+  }
 }
 
 /**
@@ -266,10 +293,28 @@ export function startRequestingServer(
       // e.g., if base is /api and request is /api/users/create, path is /users/create
       const actionPath = c.req.path.substring(REQUESTING_BASE_URL.length);
 
+      // Extract session from Authorization header if present
+      // Format: Authorization: Bearer <user-id> or Authorization: <user-id>
+      // Always include session in inputs (undefined if header is missing) so syncs can check for it
+      let session: string | undefined;
+      const authHeader = c.req.header('Authorization');
+      if (authHeader) {
+        // Support both "Bearer <token>" and "<token>" formats
+        session = authHeader.startsWith('Bearer ')
+          ? authHeader.substring(7).trim()
+          : authHeader.trim();
+        // Set to undefined if empty
+        if (session.length === 0) {
+          session = undefined;
+        }
+      }
+
       // Combine the path from the URL with the JSON body to form the action's input.
+      // Always include session (even if undefined) so syncs can detect missing auth
       const inputs = {
         ...body,
         path: actionPath,
+        session, // Always include, even if undefined
       };
 
       console.log(`[Requesting] Received request for path: ${inputs.path}`);

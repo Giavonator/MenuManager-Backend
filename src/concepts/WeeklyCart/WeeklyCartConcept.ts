@@ -1,5 +1,6 @@
 import { Collection, Db } from "npm:mongodb";
 import { ErrorType, ID, Result } from "@utils/types.ts";
+import { freshID } from "@utils/database.ts";
 
 // --- Helper Date Functions ---
 // These helpers normalize dates to UTC start of day for consistent comparison
@@ -40,7 +41,7 @@ const PREFIX = "WeeklyCart" + ".";
 
 // Generic types of this concept
 type Menu = ID; // Menu is an external ID, no internal properties here.
-type Cart = ID; // The ID of a cart will be its startDate formatted as a YYYY-MM-DD string.
+type Cart = ID;
 
 // --- MongoDB Document Interfaces ---
 
@@ -51,7 +52,7 @@ type Cart = ID; // The ID of a cart will be its startDate formatted as a YYYY-MM
  *   a menus Set of Menu
  */
 interface CartDocument {
-  _id: Cart; // The startDate formatted as YYYY-MM-DD string, serving as the unique identifier for the week.
+  _id: Cart;
   startDate: Date;
   endDate: Date;
   menus: Menu[]; // Storing an array of Menu IDs that belong to this week's cart.
@@ -81,6 +82,9 @@ type GetMenusInCartOutput = Result<{ menus: Menu[] }[]>; // Returns an array of 
 
 type GetCartByDateInput = { date: Date };
 type GetCartByDateOutput = Result<{ cart: Cart }[]>; // Returns an array of objects, or empty array if not found.
+
+type GetCartWithMenuInput = { menu: Menu };
+type GetCartWithMenuOutput = Result<{ cart: Cart }[]>; // Returns an array of objects, or empty array if not found.
 
 // --- WeeklyCartConcept Class ---
 
@@ -128,16 +132,20 @@ export default class WeeklyCartConcept {
 
       const endDate = getSaturdayOfWeek(dateInWeek);
 
-      // The _id of the cart will be its startDate formatted as YYYY-MM-DD string.
-      const cartId = startDate.toISOString().split("T")[0] as Cart;
-
       // Requirement: No other Cart exists for the week containing `dateInWeek`.
-      const existingCart = await this.carts.findOne({ _id: cartId });
+      const existingCart = await this.carts.findOne({
+        startDate: startDate,
+        endDate: endDate,
+      });
       if (existingCart) {
         return {
-          error: `A cart already exists for the week starting on ${cartId}`,
+          error: `A cart already exists for the week starting on ${
+            startDate.toISOString().split("T")[0]
+          }`,
         };
       }
+
+      const cartId = freshID() as Cart;
 
       const newCart: CartDocument = {
         _id: cartId,
@@ -198,11 +206,9 @@ export default class WeeklyCartConcept {
   /**
    * addMenuToCart (menu: Menu, menuDate: Date): (cart: Cart)
    *
-   * **requires** `menu` exists. (Note: "menu exists" means its ID is valid, but this concept does not validate `Menu` content itself)
+   * **requires** `menu` exists and a `cart` exists whose `startDate` and `endDate` range *contains* `menuDate`.
    *
-   * **effects** Adds `menu` to `cart` whose `startDate` and `endDate` range *contains* `menuDate`.
-   * If such a cart doesn't exist, a `createCart` for that date and then add `menu` to the new cart.
-   * Return `cart` menu was added to.
+   * **effects** Adds `menu` to `cart`. Return `cart` menu was added to.
    */
   async addMenuToCart(
     { menu, menuDate }: AddMenuToCartInput,
@@ -211,40 +217,17 @@ export default class WeeklyCartConcept {
       const normalizedMenuDate = new Date(menuDate);
       normalizedMenuDate.setUTCHours(0, 0, 0, 0);
 
-      let cart = await this.carts.findOne({
+      const cart = await this.carts.findOne({
         startDate: { $lte: normalizedMenuDate },
         endDate: { $gte: normalizedMenuDate },
       });
 
-      // If cart doesn't exist for the week, create one
       if (!cart) {
-        console.log(
-          `No cart found for ${
+        return {
+          error: `No cart found for the week containing ${
             menuDate.toISOString().split("T")[0]
-          }, creating a new one...`,
-        );
-        const createResult = await this.createCart({ dateInWeek: menuDate });
-
-        if ((createResult as ErrorType).error !== undefined) {
-          return {
-            error: `Failed to create cart for menu addition: ${
-              (createResult as ErrorType).error
-            }`,
-          };
-        }
-
-        // At this point, createResult is guaranteed to be of type { cart: Cart }.
-        const createdCartId = (createResult as { cart: Cart }).cart;
-
-        // Retrieve the newly created cart using its ID
-        cart = await this.carts.findOne({ _id: createdCartId });
-        if (!cart) {
-          // This scenario indicates a critical issue if cart creation succeeded but lookup failed
-          return {
-            error:
-              `Failed to retrieve newly created cart with ID ${createdCartId}`,
-          };
-        }
+          }`,
+        };
       }
 
       // Check if menu is already in the cart to provide a specific error message if applicable
@@ -385,6 +368,30 @@ export default class WeeklyCartConcept {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error getting cart by date: ${errorMessage}`);
       return { error: `Failed to get cart by date: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * _getCartWithMenu (menu: Menu): (cart: Cart)
+   *
+   * **requires** true.
+   *
+   * **effects** Returns the `cart` that contains `menu` in its `menus` array. If no such cart exists, returns empty array.
+   */
+  async _getCartWithMenu(
+    { menu }: GetCartWithMenuInput,
+  ): Promise<GetCartWithMenuOutput> {
+    try {
+      const cartDoc = await this.carts.findOne({ menus: menu });
+
+      if (!cartDoc) {
+        return []; // As per spec, returns an empty array if no cart found.
+      }
+      return [{ cart: cartDoc._id }];
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`Error getting cart with menu ${menu}: ${errorMessage}`);
+      return { error: `Failed to get cart with menu: ${errorMessage}` };
     }
   }
 }

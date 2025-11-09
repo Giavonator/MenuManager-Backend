@@ -52,20 +52,15 @@ interface RecipeSchema {
 type CreateRecipeInput = { name: string; user: User };
 type CreateRecipeOutput = Result<{ recipe: Recipe }>;
 
-// Update Recipe Overloads - using a union type for a single implementation method
-type UpdateRecipeInstructionsInput = { recipe: Recipe; instructions: string };
-type UpdateRecipeServingQuantityInput = {
+// Update Recipe - allows updating multiple fields in a single call
+type UpdateRecipeInput = {
   recipe: Recipe;
-  servingQuantity: number;
+  instructions?: string;
+  servingQuantity?: number;
+  dishType?: string;
+  name?: string;
 };
-type UpdateRecipeDishTypeInput = { recipe: Recipe; dishType: string };
-type UpdateRecipeNameInput = { recipe: Recipe; name: string };
-type UpdateRecipeInput =
-  | UpdateRecipeInstructionsInput
-  | UpdateRecipeServingQuantityInput
-  | UpdateRecipeDishTypeInput
-  | UpdateRecipeNameInput;
-type UpdateRecipeOutput = Result<Empty>;
+type UpdateRecipeOutput = Result<{ success: true }>;
 
 type DuplicateRecipeInput = {
   originalRecipe: Recipe;
@@ -80,7 +75,7 @@ type AddRecipeIngredientInput = {
   quantity: number;
   units: string;
 };
-type AddRecipeIngredientOutput = Result<Empty>;
+type AddRecipeIngredientOutput = Result<{ success: true }>;
 
 type UpdateRecipeIngredientInput = {
   recipe: Recipe;
@@ -88,10 +83,10 @@ type UpdateRecipeIngredientInput = {
   quantity: number;
   units: string;
 };
-type UpdateRecipeIngredientOutput = Result<Empty>;
+type UpdateRecipeIngredientOutput = Result<{ success: true }>;
 
 type RemoveRecipeIngredientInput = { recipe: Recipe; name: string };
-type RemoveRecipeIngredientOutput = Result<Empty>;
+type RemoveRecipeIngredientOutput = Result<{ success: true }>;
 
 // --- Query Input/Output Types ---
 
@@ -185,7 +180,7 @@ export default class CookBookConcept {
    * **effects** Updates the specified attribute of the `recipe`.
    */
   async updateRecipe(input: UpdateRecipeInput): Promise<UpdateRecipeOutput> {
-    const { recipe: recipeId } = input as { recipe: Recipe }; // Extract recipe ID
+    const { recipe: recipeId } = input;
     if (!recipeId || recipeId.trim() === "") {
       return { error: "Recipe ID cannot be empty." };
     }
@@ -193,13 +188,15 @@ export default class CookBookConcept {
     const filter = { _id: recipeId };
     const update: { $set: Partial<RecipeSchema> } = { $set: {} };
 
-    // Determine which field to update based on the input structure
-    if ("instructions" in input) {
+    // Update ALL provided fields (skip null/undefined values)
+    // This allows multiple fields to be updated in a single call
+    if ("instructions" in input && input.instructions != null) {
       if (typeof input.instructions !== "string") {
         return { error: "Instructions must be a string." };
       }
       update.$set.instructions = input.instructions;
-    } else if ("servingQuantity" in input) {
+    }
+    if ("servingQuantity" in input && input.servingQuantity != null) {
       if (
         typeof input.servingQuantity !== "number" || input.servingQuantity <= 0
       ) {
@@ -207,17 +204,22 @@ export default class CookBookConcept {
       }
       // Ensure it's an integer if specified as Int in spec
       update.$set.servingQuantity = Math.floor(input.servingQuantity);
-    } else if ("dishType" in input) {
+    }
+    if ("dishType" in input && input.dishType != null) {
       if (typeof input.dishType !== "string") {
         return { error: "Dish type must be a string." };
       }
       update.$set.dishType = input.dishType;
-    } else if ("name" in input) {
+    }
+    if ("name" in input && input.name != null) {
       if (typeof input.name !== "string" || input.name.trim() === "") {
         return { error: "Recipe name cannot be empty." };
       }
       update.$set.name = input.name.trim();
-    } else {
+    }
+
+    // Check if at least one field was provided
+    if (Object.keys(update.$set).length === 0) {
       return { error: "No valid field provided for update." };
     }
 
@@ -226,8 +228,8 @@ export default class CookBookConcept {
       if (result.matchedCount === 0) {
         return { error: `Recipe with ID '${recipeId}' not found.` };
       }
-      return {};
-    } catch (e: unknown) { // Fix: Add unknown type and safe error message extraction
+      return { success: true };
+    } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error updating recipe: ${errorMessage}`);
       return { error: `Failed to update recipe: ${errorMessage}` };
@@ -361,7 +363,7 @@ export default class CookBookConcept {
         // This case should ideally be caught by the findOne above, but as a safeguard.
         return { error: `Recipe with ID '${recipe}' not found during update.` };
       }
-      return {};
+      return { success: true };
     } catch (e: unknown) { // Fix: Add unknown type and safe error message extraction
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error adding ingredient to recipe: ${errorMessage}`);
@@ -411,7 +413,7 @@ export default class CookBookConcept {
           error: `Recipe '${recipe}' or ingredient '${name}' not found.`,
         };
       }
-      return {};
+      return { success: true };
     } catch (e: unknown) { // Fix: Add unknown type and safe error message extraction
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error updating ingredient in recipe: ${errorMessage}`);
@@ -450,7 +452,7 @@ export default class CookBookConcept {
           error: `Recipe '${recipe}' or ingredient '${name}' not found.`,
         };
       }
-      return {};
+      return { success: true };
     } catch (_Error: unknown) { // Fix: Add unknown type and safe error message extraction for _Error
       const errorMessage = _Error instanceof Error
         ? _Error.message

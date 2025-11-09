@@ -53,12 +53,6 @@ const menuPizza = "menu:Pizza" as ID;
 const menuTacos = "menu:Tacos" as ID;
 const menuSalad = "menu:Salad" as ID;
 
-// Expected Cart ID format (YYYY-MM-DD of the Sunday)
-const nextWeekCartId = nextSunday.toISOString().split("T")[0] as ID;
-const twoWeeksFromNowCartId = twoWeeksFromSunday.toISOString().split(
-  "T",
-)[0] as ID;
-
 Deno.test("WeeklyCartConcept - Operating Principle Verification", async (t) => {
   printTestHeader(t.name);
   const [db, client] = await testDb();
@@ -86,9 +80,9 @@ Deno.test("WeeklyCartConcept - Operating Principle Verification", async (t) => {
       );
       createdCartId = (createResult as { cart: ID }).cart;
       assertAndLog(
-        createdCartId,
-        nextWeekCartId,
-        "Cart ID should match the Sunday of the provided date",
+        typeof createdCartId === "string" && createdCartId.length > 0,
+        true,
+        "Cart ID should be a valid string",
         stepMessage,
         ++checkIndex,
       );
@@ -319,9 +313,9 @@ Deno.test("WeeklyCartConcept - createCart Action Tests", async (t) => {
     );
     const cartId = (createResult as { cart: ID }).cart;
     assertAndLog(
-      cartId,
-      nextWeekCartId,
-      "Created cart ID should match expected",
+      typeof cartId === "string" && cartId.length > 0,
+      true,
+      "Created cart ID should be valid",
       stepMessage,
       ++checkIndex,
     );
@@ -576,10 +570,10 @@ Deno.test("WeeklyCartConcept - addMenuToCart Action Tests", async (t) => {
   });
 
   await t.step(
-    "2. Add menu to a week without a cart (should create new cart)",
+    "2. Fail to add menu to a week without a cart (cart must exist)",
     async () => {
       const stepMessage =
-        "2. Add menu to a week without a cart (should create new cart)";
+        "2. Fail to add menu to a week without a cart (cart must exist)";
       printStepHeader(stepMessage);
       checkIndex = 0;
 
@@ -588,26 +582,18 @@ Deno.test("WeeklyCartConcept - addMenuToCart Action Tests", async (t) => {
         menuDate: twoWeeksFromMonday,
       });
       assertAndLog(
-        "cart" in addMenuResult,
+        "error" in addMenuResult,
         true,
-        "Adding menu should succeed and create a new cart",
+        "Adding menu should fail when cart doesn't exist",
         stepMessage,
         ++checkIndex,
       );
-      const newCartId = (addMenuResult as { cart: ID }).cart;
       assertAndLog(
-        newCartId,
-        twoWeeksFromNowCartId,
-        "Newly created cart ID should be correct",
-        stepMessage,
-        ++checkIndex,
-      );
-
-      const menusInCart = await weeklyCart._getMenusInCart({ cart: newCartId });
-      assertAndLog(
-        (menusInCart as { menus: ID[] }[])[0].menus.includes(menuPizza),
+        (addMenuResult as { error: string }).error.includes(
+          "No cart found for the week containing",
+        ),
         true,
-        "New cart should contain the added menu",
+        "Error message should indicate cart not found",
         stepMessage,
         ++checkIndex,
       );
@@ -643,10 +629,10 @@ Deno.test("WeeklyCartConcept - addMenuToCart Action Tests", async (t) => {
   });
 
   await t.step(
-    "4. Fail to add a menu for a past/current week if createCart fails",
+    "4. Fail to add a menu when cart doesn't exist",
     async () => {
       const stepMessage =
-        "4. Fail to add a menu for a past/current week if createCart fails";
+        "4. Fail to add a menu when cart doesn't exist";
       printStepHeader(stepMessage);
       checkIndex = 0;
 
@@ -657,16 +643,16 @@ Deno.test("WeeklyCartConcept - addMenuToCart Action Tests", async (t) => {
       assertAndLog(
         "error" in addMenuResult,
         true,
-        "Adding menu to past week should fail if no cart exists and creation fails",
+        "Adding menu should fail when cart doesn't exist",
         stepMessage,
         ++checkIndex,
       );
       assertAndLog(
         (addMenuResult as { error: string }).error.includes(
-          "Failed to create cart for menu addition",
+          "No cart found for the week containing",
         ),
         true,
-        "Error message should indicate failure in cart creation",
+        "Error message should indicate cart not found",
         stepMessage,
         ++checkIndex,
       );
@@ -992,6 +978,76 @@ Deno.test("WeeklyCartConcept - Query Tests", async (t) => {
         (cartResult as { cart: ID }[]).length,
         0,
         "Should return an empty array if no cart is found for the date",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "7. _getCartWithMenu: Successfully retrieve cart containing a menu",
+    async () => {
+      const stepMessage =
+        "7. _getCartWithMenu: Successfully retrieve cart containing a menu";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Ensure testCartId has menus from previous steps
+      // Add a menu to the cart if it doesn't already have one
+      await weeklyCart.addMenuToCart({
+        menu: menuSpaghetti,
+        menuDate: nextMonday,
+      });
+
+      const cartResult = await weeklyCart._getCartWithMenu({
+        menu: menuSpaghetti,
+      });
+      assertAndLog(
+        "error" in cartResult,
+        false,
+        "Query for cart with menu should not return an error",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (cartResult as { cart: ID }[]).length,
+        1,
+        "Should return one cart",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (cartResult as { cart: ID }[])[0].cart,
+        testCartId,
+        "Returned cart ID should be correct",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "8. _getCartWithMenu: Return empty array for menu not in any cart",
+    async () => {
+      const stepMessage =
+        "8. _getCartWithMenu: Return empty array for menu not in any cart";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      const cartResult = await weeklyCart._getCartWithMenu({
+        menu: menuSalad,
+      });
+      assertAndLog(
+        "error" in cartResult,
+        false,
+        "Query for menu not in any cart should not return an error",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (cartResult as { cart: ID }[]).length,
+        0,
+        "Should return an empty array if menu is not in any cart",
         stepMessage,
         ++checkIndex,
       );

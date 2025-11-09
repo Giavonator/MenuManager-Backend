@@ -1,6 +1,7 @@
 import { Collection, Db } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
 import { freshID } from "@utils/database.ts";
+import { hashPassword, comparePassword, isHashed } from "@utils/password.ts";
 
 // Collection prefix, using concept name
 const PREFIX = "UserAuthentication.";
@@ -54,7 +55,9 @@ type UpdatePasswordOutput = { success: true } | { error: string };
 // _getIsUserAdmin (user: User): (isAdmin: Bool) | (error: String)
 // Returns error if user not found.
 type GetIsUserAdminInput = { user: User };
-type GetIsUserAdminOutput = { isAdmin: boolean } | { error: string };
+type GetIsUserAdminOutput = Array<{ isAdmin: boolean } | { error: string }> | {
+  isAdmin: boolean;
+} | { error: string };
 
 // _getListOfUsers (): (users: set of User)
 // No error specified, returns list of user IDs.
@@ -104,10 +107,13 @@ export default class UserAuthenticationConcept {
       return { error: `User with username '${username}' already exists.` };
     }
 
+    // Hash password before storing
+    const hashedPassword = await hashPassword(password);
+
     const newUser: UsersDoc = {
       _id: freshID() as User, // Generate a fresh ID for the new user
       username,
-      password, // Storing as-is based on spec. In production, this should be hashed.
+      password: hashedPassword, // Store hashed password
       admin: false, // Default to non-admin
     };
 
@@ -132,9 +138,18 @@ export default class UserAuthenticationConcept {
   ): Promise<AuthenticateOutput> {
     const { username, password } = input;
 
-    // Precondition: User exists with that username and password
-    const user = await this.users.findOne({ username, password }); // In production, compare hashed passwords
+    // Find user by username first
+    const user = await this.users.findOne({ username });
     if (!user) {
+      return { error: "Invalid username or password." };
+    }
+
+    // Compare password with stored hash (handles both hashed and plaintext for backward compatibility during migration)
+    const passwordMatches = isHashed(user.password)
+      ? await comparePassword(password, user.password)
+      : user.password === password;
+
+    if (!passwordMatches) {
       return { error: "Invalid username or password." };
     }
 
@@ -233,14 +248,22 @@ export default class UserAuthenticationConcept {
     }
 
     // Precondition 2: `user.password` matches `oldPassword`
-    if (targetUserDoc.password !== oldPassword) {
+    // Handle both hashed and plaintext passwords for backward compatibility during migration
+    const passwordMatches = isHashed(targetUserDoc.password)
+      ? await comparePassword(oldPassword, targetUserDoc.password)
+      : targetUserDoc.password === oldPassword;
+
+    if (!passwordMatches) {
       return { error: "Old password does not match." };
     }
 
-    // Effect: `user.password` is set to `newPassword`
+    // Hash new password before storing
+    const hashedNewPassword = await hashPassword(newPassword);
+
+    // Effect: `user.password` is set to hashed `newPassword`
     await this.users.updateOne(
       { _id: user },
-      { $set: { password: newPassword } },
+      { $set: { password: hashedNewPassword } },
     );
     return { success: true };
   }
@@ -258,11 +281,13 @@ export default class UserAuthenticationConcept {
     // Precondition: `user` is in `Users`
     const userDoc = await this.users.findOne({ _id: user });
     if (!userDoc) {
-      return { error: `User with ID '${user}' not found.` };
+      return [{
+        error: `User with ID '${user}' not found.`,
+      }] as GetIsUserAdminOutput;
     }
 
     // Effect: Returns the admin status of the user
-    return { isAdmin: userDoc.admin };
+    return [{ isAdmin: userDoc.admin }] as GetIsUserAdminOutput;
   }
 
   /**

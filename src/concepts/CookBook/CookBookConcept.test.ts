@@ -107,8 +107,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       units: "g",
     });
     assertAndLog(
-      "error" in addPastaResult,
-      false,
+      "success" in addPastaResult,
+      true,
       "Adding pasta should succeed",
       stepMessage,
       ++checkIndex,
@@ -121,8 +121,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       units: "g",
     });
     assertAndLog(
-      "error" in addTomatoesResult,
-      false,
+      "success" in addTomatoesResult,
+      true,
       "Adding tomatoes should succeed",
       stepMessage,
       ++checkIndex,
@@ -135,8 +135,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       units: "tsp",
     });
     assertAndLog(
-      "error" in addSpicesResult,
-      false,
+      "success" in addSpicesResult,
+      true,
       "Adding spices should succeed",
       stepMessage,
       ++checkIndex,
@@ -191,8 +191,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       instructions: "Boil pasta. Add sauce. Serve hot.",
     });
     assertAndLog(
-      "error" in updateInstructionsResult,
-      false,
+      "success" in updateInstructionsResult,
+      true,
       "Updating instructions should succeed",
       stepMessage,
       ++checkIndex,
@@ -203,8 +203,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       servingQuantity: 4,
     });
     assertAndLog(
-      "error" in updateServingResult,
-      false,
+      "success" in updateServingResult,
+      true,
       "Updating serving quantity should succeed",
       stepMessage,
       ++checkIndex,
@@ -215,8 +215,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
       dishType: "Main Course",
     });
     assertAndLog(
-      "error" in updateDishTypeResult,
-      false,
+      "success" in updateDishTypeResult,
+      true,
       "Updating dish type should succeed",
       stepMessage,
       ++checkIndex,
@@ -392,8 +392,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
         name: "Chili Flakes",
       });
       assertAndLog(
-        "error" in removeChiliResult,
-        false,
+        "success" in removeChiliResult,
+        true,
         "Removing Chili Flakes should succeed",
         stepMessage,
         ++checkIndex,
@@ -422,8 +422,8 @@ Deno.test("CookBookConcept - Operational Principle Verification", async (t) => {
         units: "g",
       });
       assertAndLog(
-        "error" in updatePastaResult,
-        false,
+        "success" in updatePastaResult,
+        true,
         "Updating Pasta quantity should succeed",
         stepMessage,
         ++checkIndex,
@@ -725,8 +725,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       name: "Delicious Cake",
     });
     assertAndLog(
-      "error" in updateNameResult,
-      false,
+      "success" in updateNameResult,
+      true,
       "Should successfully update name",
       stepMessage,
       ++checkIndex,
@@ -758,8 +758,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       instructions: "Mix, bake, enjoy.",
     });
     assertAndLog(
-      "error" in updateInstructionsResult,
-      false,
+      "success" in updateInstructionsResult,
+      true,
       "Should successfully update instructions",
       stepMessage,
       ++checkIndex,
@@ -791,8 +791,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       servingQuantity: 8,
     });
     assertAndLog(
-      "error" in updateServingResult,
-      false,
+      "success" in updateServingResult,
+      true,
       "Should successfully update serving quantity",
       stepMessage,
       ++checkIndex,
@@ -824,8 +824,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       dishType: "Dessert",
     });
     assertAndLog(
-      "error" in updateDishTypeResult,
-      false,
+      "success" in updateDishTypeResult,
+      true,
       "Should successfully update dish type",
       stepMessage,
       ++checkIndex,
@@ -1122,8 +1122,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       units: "ml",
     });
     assertAndLog(
-      "error" in updateIngredientResult,
-      false,
+      "success" in updateIngredientResult,
+      true,
       "Updating ingredient should succeed",
       stepMessage,
       ++checkIndex,
@@ -1276,8 +1276,8 @@ Deno.test("CookBookConcept - Action Specific Validations and Edge Cases", async 
       name: "Flour",
     });
     assertAndLog(
-      "error" in removeResult,
-      false,
+      "success" in removeResult,
+      true,
       "Removing ingredient should succeed",
       stepMessage,
       ++checkIndex,

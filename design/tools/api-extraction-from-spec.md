@@ -17,7 +17,7 @@ Adhere to the following rules for the API structure and the documentation format
 4.  **Data Format:** All requests and responses use the `application/json` content type.
 5.  **Request Body:** The request body is always a single JSON object. The keys of this object correspond to the input arguments defined in the action's signature.
 6.  **Response Body:**
-    *   **Actions:** A successful call to an action returns a single JSON object. The keys correspond to the results defined in the action's signature. If there are no results, an empty object `{}` is returned.
+    *   **Actions:** A successful call to an action returns a single JSON object. The keys correspond to the results defined in the action's signature. If there are no results (actions that don't return data), `{ "success": true }` is returned following REST API standards.
     *   **Queries:** A successful call to a query (a method name starting with `_`) returns a JSON **array** of objects.
     *   **Errors:** If an action fails to meet its `requires` condition or encounters another error, it returns a single JSON object with a single key: `{ "error": "A descriptive error message." }`.
 

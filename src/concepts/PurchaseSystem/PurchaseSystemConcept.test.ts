@@ -249,8 +249,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
           scaleFactor: 1.0,
         });
       assertAndLog(
-        "error" in addPastaResult,
-        false,
+        "success" in addPastaResult,
+        true,
         "Adding Pasta to recipe should succeed",
         stepMessage,
         ++checkIndex,
@@ -266,8 +266,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
           },
         );
       assertAndLog(
-        "error" in addTomatoesResult,
-        false,
+        "success" in addTomatoesResult,
+        true,
         "Adding Tomatoes to recipe should succeed",
         stepMessage,
         ++checkIndex,
@@ -283,8 +283,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
           },
         );
       assertAndLog(
-        "error" in addGroundBeefResult,
-        false,
+        "success" in addGroundBeefResult,
+        true,
         "Adding Ground Beef to recipe should succeed",
         stepMessage,
         ++checkIndex,
@@ -300,8 +300,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
       compositeOrders: [recipeId],
     });
     assertAndLog(
-      "error" in calculateResult,
-      false,
+      "success" in calculateResult,
+      true,
       "Calculate optimal purchase should succeed",
       stepMessage,
       ++checkIndex,
@@ -403,8 +403,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
       compositeOrder: recipeId,
     });
     assertAndLog(
-      "error" in purchaseResult,
-      false,
+      "success" in purchaseResult,
+      true,
       "Purchasing the recipe should succeed",
       stepMessage,
       ++checkIndex,
@@ -463,8 +463,8 @@ Deno.test("PurchaseSystemConcept - Operating Principle Verification", async (t) 
         atomicOrder: spaghettiAtomicId,
       });
       assertAndLog(
-        "error" in deleteAtomicResult,
-        false, // Deleting the atomic order itself should still work
+        "success" in deleteAtomicResult,
+        true, // Deleting the atomic order itself should still work
         "Deleting an atomic order should succeed (even if its parent tree is purchased)",
         stepMessage,
         ++checkIndex,
@@ -575,10 +575,11 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
     const addLunchResult = await purchaseSystem.addCompositeSubOrder({
       parentOrder: mealPlanId,
       childOrder: lunchRecipeId,
+      scaleFactor: 1.0,
     });
     assertAndLog(
-      "error" in addLunchResult,
-      false,
+      "success" in addLunchResult,
+      true,
       "Adding Lunch to Meal Plan should succeed",
       stepMessage,
       ++checkIndex,
@@ -587,10 +588,11 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
     const addDinnerResult = await purchaseSystem.addCompositeSubOrder({
       parentOrder: mealPlanId,
       childOrder: dinnerRecipeId,
+      scaleFactor: 1.0,
     });
     assertAndLog(
-      "error" in addDinnerResult,
-      false,
+      "success" in addDinnerResult,
+      true,
       "Adding Dinner to Meal Plan should succeed",
       stepMessage,
       ++checkIndex,
@@ -656,6 +658,7 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
       const addCycleResult = await purchaseSystem.addCompositeSubOrder({
         parentOrder: lunchRecipeId,
         childOrder: mealPlanId,
+        scaleFactor: 1.0,
       });
       assertAndLog(
         "error" in addCycleResult,
@@ -684,6 +687,7 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
       const addSelfResult = await purchaseSystem.addCompositeSubOrder({
         parentOrder: lunchRecipeId,
         childOrder: lunchRecipeId,
+        scaleFactor: 1.0,
       });
       assertAndLog(
         "error" in addSelfResult,
@@ -711,10 +715,11 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
       const addDessertResult = await purchaseSystem.addCompositeSubOrder({
         parentOrder: lunchRecipeId,
         childOrder: dessertRecipeId,
+        scaleFactor: 1.0,
       });
       assertAndLog(
-        "error" in addDessertResult,
-        false,
+        "success" in addDessertResult,
+        true,
         "Adding Dessert to Lunch should succeed",
         stepMessage,
         ++checkIndex,
@@ -759,8 +764,8 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
         childOrder: lunchRecipeId,
       });
       assertAndLog(
-        "error" in removeLunchResult,
-        false,
+        "success" in removeLunchResult,
+        true,
         "Removing Lunch from Meal Plan should succeed",
         stepMessage,
         ++checkIndex,
@@ -828,8 +833,8 @@ Deno.test("PurchaseSystemConcept - Composite Hierarchy and Cycle Prevention", as
         compositeOrder: lunchRecipeId,
       });
       assertAndLog(
-        "error" in deleteLunchResult,
-        false,
+        "success" in deleteLunchResult,
+        true,
         "Deleting Lunch recipe should succeed",
         stepMessage,
         ++checkIndex,
@@ -1142,8 +1147,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
         scaleFactor: 1.0,
       });
     assertAndLog(
-      "error" in addSelectToCompositeResult,
-      false,
+      "success" in addSelectToCompositeResult,
+      true,
       "Adding selectId1 to composite should succeed",
       stepMessage,
       ++checkIndex,
@@ -1169,8 +1174,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
       quantity: 0.5,
     });
     assertAndLog(
-      "error" in updateQtyResult,
-      false,
+      "success" in updateQtyResult,
+      true,
       "Updating quantity of atomicId1_1 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1229,8 +1234,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
       price: 3.00,
     });
     assertAndLog(
-      "error" in updatePriceResult,
-      false,
+      "success" in updatePriceResult,
+      true,
       "Updating price of atomicId1_1 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1268,8 +1273,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
       units: "ml",
     });
     assertAndLog(
-      "error" in updateUnitsResult,
-      false,
+      "success" in updateUnitsResult,
+      true,
       "Updating units of atomicId1_2 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1332,8 +1337,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
       atomicOrder: atomicId1_2,
     });
     assertAndLog(
-      "error" in deleteA1_2Result,
-      false,
+      "success" in deleteA1_2Result,
+      true,
       "Deleting non-base atomicId1_2 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1387,8 +1392,8 @@ Deno.test("PurchaseSystemConcept - Atomic and Select Order Management", async (t
       atomicOrder: atomicId1_1,
     });
     assertAndLog(
-      "error" in deleteA1_1Result,
-      false,
+      "success" in deleteA1_1Result,
+      true,
       "Deleting base atomicId1_1 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1562,14 +1567,17 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
     await purchaseSystem.addCompositeSubOrder({
       parentOrder: rootCompId,
       childOrder: childCompAId,
+      scaleFactor: 1.0,
     });
     await purchaseSystem.addCompositeSubOrder({
       parentOrder: rootCompId,
       childOrder: childCompBId,
+      scaleFactor: 1.0,
     });
     await purchaseSystem.addCompositeSubOrder({
       parentOrder: childCompAId,
       childOrder: grandchildCompId,
+      scaleFactor: 1.0,
     });
 
     await purchaseSystem.calculateOptimalPurchase({
@@ -1629,8 +1637,8 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
       newScaleFactor: 2.0,
     });
     assertAndLog(
-      "error" in updateScaleResult,
-      false,
+      "success" in updateScaleResult,
+      true,
       "Updating scale factor for selectId1 should succeed",
       stepMessage,
       ++checkIndex,
@@ -1694,8 +1702,8 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
       newScaleFactor: 0.5,
     });
     assertAndLog(
-      "error" in updateScaleResult,
-      false,
+      "success" in updateScaleResult,
+      true,
       "Updating scale factor for childCompA should succeed",
       stepMessage,
       ++checkIndex,
@@ -1728,8 +1736,8 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
         selectOrder: selectId2,
       });
     assertAndLog(
-      "error" in removeSelectResult,
-      false,
+      "success" in removeSelectResult,
+      true,
       "Removing selectId2 from childCompB should succeed",
       stepMessage,
       ++checkIndex,
@@ -1825,8 +1833,8 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
       },
     );
     assertAndLog(
-      "error" in removeGrandchildResult,
-      false,
+      "success" in removeGrandchildResult,
+      true,
       "Removing grandchild from childA should succeed",
       stepMessage,
       ++checkIndex,
@@ -1912,6 +1920,278 @@ Deno.test("PurchaseSystemConcept - Composite Order Structure & Scale Factors", a
   await client.close();
 });
 
+Deno.test("PurchaseSystemConcept - deleteSelectOrder", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const purchaseSystem = new PurchaseSystemConcept(db);
+
+  let checkIndex = 0;
+  let selectId1: ID, selectId2: ID;
+  let atomicId1: ID, atomicId2: ID;
+  let compositeId: ID;
+
+  await t.step("1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder", async () => {
+    const stepMessage = "1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder";
+    printStepHeader(stepMessage);
+
+    // Create SelectOrders
+    const createS1Result = await purchaseSystem.createSelectOrder({
+      associateID: "select:TestItem1" as ID,
+    });
+    assertAndLog(
+      "selectOrder" in createS1Result,
+      true,
+      "SelectOrder 1 creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    selectId1 = (createS1Result as { selectOrder: ID }).selectOrder;
+
+    const createS2Result = await purchaseSystem.createSelectOrder({
+      associateID: "select:TestItem2" as ID,
+    });
+    assertAndLog(
+      "selectOrder" in createS2Result,
+      true,
+      "SelectOrder 2 creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    selectId2 = (createS2Result as { selectOrder: ID }).selectOrder;
+
+    // Create AtomicOrders for selectId1
+    const createA1Result = await purchaseSystem.createAtomicOrder({
+      selectOrder: selectId1,
+      associateID: "atomic:Test1" as ID,
+      quantity: 1.0,
+      units: "unit",
+      price: 10.0,
+    });
+    assertAndLog(
+      "atomicOrder" in createA1Result,
+      true,
+      "AtomicOrder 1 creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    atomicId1 = (createA1Result as { atomicOrder: ID }).atomicOrder;
+
+    const createA2Result = await purchaseSystem.createAtomicOrder({
+      selectOrder: selectId1,
+      associateID: "atomic:Test2" as ID,
+      quantity: 2.0,
+      units: "unit",
+      price: 18.0,
+    });
+    assertAndLog(
+      "atomicOrder" in createA2Result,
+      true,
+      "AtomicOrder 2 creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    atomicId2 = (createA2Result as { atomicOrder: ID }).atomicOrder;
+
+    // Create CompositeOrder and add selectId1 to it
+    const createCompResult = await purchaseSystem.createCompositeOrder({
+      associateID: "comp:TestComposite" as ID,
+    });
+    assertAndLog(
+      "compositeOrder" in createCompResult,
+      true,
+      "CompositeOrder creation should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+    compositeId = (createCompResult as { compositeOrder: ID }).compositeOrder;
+
+    const addSelectResult = await purchaseSystem.addSelectOrderToCompositeOrder({
+      compositeOrder: compositeId,
+      selectOrder: selectId1,
+      scaleFactor: 1.0,
+    });
+    assertAndLog(
+      "success" in addSelectResult,
+      true,
+      "Adding selectId1 to composite should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("2. Delete SelectOrder with no parents and no children", async () => {
+    const stepMessage = "2. Delete SelectOrder with no parents and no children";
+    printStepHeader(stepMessage);
+
+    const deleteResult = await purchaseSystem.deleteSelectOrder({
+      selectOrder: selectId2,
+    });
+    assertAndLog(
+      "success" in deleteResult,
+      true,
+      "Deleting selectId2 should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify selectId2 is deleted
+    const deletedSelect = await purchaseSystem.selectOrders.findOne({
+      _id: selectId2,
+    });
+    assertAndLog(
+      deletedSelect,
+      null,
+      "selectId2 should be deleted",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("3. Delete SelectOrder with child AtomicOrders", async () => {
+    const stepMessage = "3. Delete SelectOrder with child AtomicOrders";
+    printStepHeader(stepMessage);
+
+    // Verify atomic orders exist before deletion
+    const atomic1Before = await purchaseSystem.atomicOrders.findOne({
+      _id: atomicId1,
+    });
+    assertExistsAndLog(
+      atomic1Before,
+      "atomicId1 should exist before deletion",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const atomic2Before = await purchaseSystem.atomicOrders.findOne({
+      _id: atomicId2,
+    });
+    assertExistsAndLog(
+      atomic2Before,
+      "atomicId2 should exist before deletion",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const deleteResult = await purchaseSystem.deleteSelectOrder({
+      selectOrder: selectId1,
+    });
+    assertAndLog(
+      "success" in deleteResult,
+      true,
+      "Deleting selectId1 should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify selectId1 is deleted
+    const deletedSelect = await purchaseSystem.selectOrders.findOne({
+      _id: selectId1,
+    });
+    assertAndLog(
+      deletedSelect,
+      null,
+      "selectId1 should be deleted",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify all child AtomicOrders are deleted
+    const atomic1After = await purchaseSystem.atomicOrders.findOne({
+      _id: atomicId1,
+    });
+    assertAndLog(
+      atomic1After,
+      null,
+      "atomicId1 should be deleted",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const atomic2After = await purchaseSystem.atomicOrders.findOne({
+      _id: atomicId2,
+    });
+    assertAndLog(
+      atomic2After,
+      null,
+      "atomicId2 should be deleted",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("4. Verify SelectOrder is removed from parent CompositeOrder", async () => {
+    const stepMessage = "4. Verify SelectOrder is removed from parent CompositeOrder";
+    printStepHeader(stepMessage);
+
+    // Verify composite order no longer has selectId1 in childSelectOrders
+    const compositeDoc = await purchaseSystem.compositeOrders.findOne({
+      _id: compositeId,
+    });
+    assertExistsAndLog(
+      compositeDoc,
+      "compositeDoc should exist",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      selectId1 in compositeDoc!.childSelectOrders,
+      false,
+      "selectId1 should not be in composite's childSelectOrders",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("5. Verify calculateOptimalPurchase was called", async () => {
+    const stepMessage = "5. Verify calculateOptimalPurchase was called";
+    printStepHeader(stepMessage);
+
+    // The composite should have been recalculated, cost should be 0 since no select orders remain
+    const compositeCost = await purchaseSystem._getOrderCost({
+      compositeOrder: compositeId,
+    });
+    assertAndLog(
+      "error" in compositeCost,
+      false,
+      "Query composite cost should not return an error",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertFloatEquals(
+      (compositeCost as { totalCost: number }[])[0].totalCost,
+      0.0,
+      "Composite cost should be 0.0 after deleting its only select order",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("6. Error case: Delete non-existent SelectOrder", async () => {
+    const stepMessage = "6. Error case: Delete non-existent SelectOrder";
+    printStepHeader(stepMessage);
+
+    const deleteResult = await purchaseSystem.deleteSelectOrder({
+      selectOrder: "nonExistent" as ID,
+    });
+    assertAndLog(
+      "error" in deleteResult,
+      true,
+      "Deleting non-existent SelectOrder should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (deleteResult as { error: string }).error,
+      `SelectOrder with ID 'nonExistent' not found.`,
+      "Error message for non-existent SelectOrder should match",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await client.close();
+});
+
 Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t) => {
   printTestHeader(t.name);
   const [db, client] = await testDb();
@@ -1982,6 +2262,7 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
     await purchaseSystem.addCompositeSubOrder({
       parentOrder: menuCompId,
       childOrder: dessertCompId,
+      scaleFactor: 1.0,
     });
 
     // Dessert recipe needs:
@@ -2045,25 +2326,29 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
       // Atomic1kg: Math.ceil(1000/1000) = 1. Cost 1 * $2 = $2. (optimal units to buy for base = 1)
       // Atomic5kg: Math.ceil(1000/5000) = 1. Cost 1 * $8 = $8. (optimal units to buy for base = 1)
       // So for base quantity, Flour1kg is cheaper.
-      // So `baseSelectOrderOptimalChoices` will choose Flour1kg. {atomicId: flour1kgAtomicId, quantity: 1, cost: $2}
-      // Then apply composite scale factor (1.5) to the `quantity` (number of atomic units to buy).
-      // `currentCompositeOptimalPurchase[flour1kgAtomicId] = ceil(1 * 1.5) = 2`
-      // `currentCompositeTotalCost += $2 * 1.5 = $3`
+      // So `baseSelectOrderOptimalChoices` will choose Flour1kg. {atomicId: flour1kgAtomicId, quantity: 1, cost: $2, baseQuantity: 1000g, atomicPackageSize: 1000g, atomicPrice: $2}
+      // Scale base quantity: 1000g * 1.5 = 1500g needed
+      // Recalculate units: ceil(1500 / 1000) = 2 units
+      // Recalculate cost: 2 * $2 = $4
+      // `currentCompositeOptimalPurchase[flour1kgAtomicId] = 2`
+      // `currentCompositeTotalCost += $4`
 
       // Expected for Sugar (base 100g, scale 7.0 => need 700g)
       // SugarSelect base: (100g, "g")
       // Atomic100g: Math.ceil(100/100) = 1. Cost 1 * $0.5 = $0.5. (optimal units to buy for base = 1)
       // Atomic500g: Math.ceil(100/500) = 1. Cost 1 * $2.0 = $2.0. (optimal units to buy for base = 1)
-      // So `baseSelectOrderOptimalChoices` will choose Sugar100g. {atomicId: sugar100gAtomicId, quantity: 1, cost: $0.5}
-      // Then apply composite scale factor (7.0) to the `quantity`.
-      // `currentCompositeOptimalPurchase[sugar100gAtomicId] = ceil(1 * 7.0) = 7`
-      // `currentCompositeTotalCost += $0.5 * 7.0 = $3.5`
+      // So `baseSelectOrderOptimalChoices` will choose Sugar100g. {atomicId: sugar100gAtomicId, quantity: 1, cost: $0.5, baseQuantity: 100g, atomicPackageSize: 100g, atomicPrice: $0.5}
+      // Scale base quantity: 100g * 7.0 = 700g needed
+      // Recalculate units: ceil(700 / 100) = 7 units
+      // Recalculate cost: 7 * $0.5 = $3.5
+      // `currentCompositeOptimalPurchase[sugar100gAtomicId] = 7`
+      // `currentCompositeTotalCost += $3.5`
 
       // Chocolate: No atomic orders, cost 0.
       // NoOptions: No atomic orders, cost 0.
 
-      // Total Cost for dessertCompId = $3.0 (Flour) + $3.5 (Sugar) = $6.5
-      // Total Cost for menuCompId (containing dessertCompId with scale 1.0) = $6.5
+      // Total Cost for dessertCompId = $4.0 (Flour) + $3.5 (Sugar) = $7.5
+      // Total Cost for menuCompId (containing dessertCompId with scale 1.0) = $7.5
 
       const menuCostResult = await purchaseSystem._getOrderCost({
         compositeOrder: menuCompId,
@@ -2077,8 +2362,8 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
       );
       assertFloatEquals(
         (menuCostResult as { totalCost: number }[])[0].totalCost,
-        6.5,
-        "Menu total cost should be 6.5",
+        7.5,
+        "Menu total cost should be 7.5",
         stepMessage,
         ++checkIndex,
       );
@@ -2095,8 +2380,8 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
       );
       assertFloatEquals(
         (dessertCostResult as { totalCost: number }[])[0].totalCost,
-        6.5,
-        "Dessert total cost should be 6.5",
+        7.5,
+        "Dessert total cost should be 7.5",
         stepMessage,
         ++checkIndex,
       );
@@ -2156,13 +2441,15 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
 
     // Expected for Chocolate (base 200g, scale 2.0 => need 400g)
     // chocolate200gAtomicId: Math.ceil(200/200) = 1. Cost 1 * $3.0 = $3.0.
-    // So `baseSelectOrderOptimalChoices` will choose chocolate200gAtomicId. {atomicId: chocolate200gAtomicId, quantity: 1, cost: $3.0}
-    // Then apply composite scale factor (2.0) to the `quantity`.
-    // `currentCompositeOptimalPurchase[chocolate200gAtomicId] = ceil(1 * 2.0) = 2`
-    // `currentCompositeTotalCost += $3.0 * 2.0 = $6.0`
+    // So `baseSelectOrderOptimalChoices` will choose chocolate200gAtomicId. {atomicId: chocolate200gAtomicId, quantity: 1, cost: $3.0, baseQuantity: 200g, atomicPackageSize: 200g, atomicPrice: $3.0}
+    // Scale base quantity: 200g * 2.0 = 400g needed
+    // Recalculate units: ceil(400 / 200) = 2 units
+    // Recalculate cost: 2 * $3.0 = $6.0
+    // `currentCompositeOptimalPurchase[chocolate200gAtomicId] = 2`
+    // `currentCompositeTotalCost += $6.0`
 
-    // New Total Cost for dessertCompId = $3.0 (Flour) + $3.5 (Sugar) + $6.0 (Chocolate) = $12.5
-    // New Total Cost for menuCompId = $12.5
+    // New Total Cost for dessertCompId = $4.0 (Flour) + $3.5 (Sugar) + $6.0 (Chocolate) = $13.5
+    // New Total Cost for menuCompId = $13.5
 
     const menuCostResult = await purchaseSystem._getOrderCost({
       compositeOrder: menuCompId,
@@ -2176,8 +2463,8 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
     );
     assertFloatEquals(
       (menuCostResult as { totalCost: number }[])[0].totalCost,
-      12.5,
-      "Menu total cost should be 12.5",
+      13.5,
+      "Menu total cost should be 13.5",
       stepMessage,
       ++checkIndex,
     );
@@ -2246,7 +2533,7 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
       // It correctly chooses `flour1kgAtomicId` as the best option for `baseQuantity`, so the `optimalPurchase` map will not change
       // as it will still select `flour1kgAtomicId`.
 
-      // Cost will remain $12.5.
+      // Cost will remain $13.5 (Flour $4 + Sugar $3.5 + Chocolate $6).
 
       const menuCostResult = await purchaseSystem._getOrderCost({
         compositeOrder: menuCompId,
@@ -2260,8 +2547,8 @@ Deno.test("PurchaseSystemConcept - Calculation with Complex Scenarios", async (t
       );
       assertFloatEquals(
         (menuCostResult as { totalCost: number }[])[0].totalCost,
-        12.5,
-        "Menu total cost should still be 12.5",
+        13.5,
+        "Menu total cost should still be 13.5",
         stepMessage,
         ++checkIndex,
       );
@@ -2341,6 +2628,7 @@ Deno.test("PurchaseSystemConcept - Purchase Order Edge Cases", async (t) => {
     await purchaseSystem.addCompositeSubOrder({
       parentOrder: rootCompId,
       childOrder: childCompId,
+      scaleFactor: 1.0,
     });
     await purchaseSystem.addSelectOrderToCompositeOrder({
       compositeOrder: childCompId,
@@ -2453,8 +2741,8 @@ Deno.test("PurchaseSystemConcept - Purchase Order Edge Cases", async (t) => {
         compositeOrder: rootCompId,
       });
       assertAndLog(
-        "error" in purchaseRootSuccessResult,
-        false,
+        "success" in purchaseRootSuccessResult,
+        true,
         "Purchasing root should succeed after adding options",
         stepMessage,
         ++checkIndex,

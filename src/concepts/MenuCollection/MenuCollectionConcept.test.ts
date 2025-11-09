@@ -133,8 +133,8 @@ Deno.test("MenuCollectionConcept - Principle Verification", async (t) => {
           scalingFactor: 1.0,
         });
         assertAndLog(
-          "error" in addTurkeyResult,
-          false,
+          "success" in addTurkeyResult,
+          true,
           "Adding Turkey should succeed",
           stepMessagePrefix,
           ++checkIndex,
@@ -146,8 +146,8 @@ Deno.test("MenuCollectionConcept - Principle Verification", async (t) => {
           scalingFactor: 0.5,
         });
         assertAndLog(
-          "error" in addGravyResult,
-          false,
+          "success" in addGravyResult,
+          true,
           "Adding Gravy should succeed",
           stepMessagePrefix,
           ++checkIndex,
@@ -200,8 +200,8 @@ Deno.test("MenuCollectionConcept - Principle Verification", async (t) => {
         newScalingFactor: 1.5,
       });
       assertAndLog(
-        "error" in changeScalingResult,
-        false,
+        "success" in changeScalingResult,
+        true,
         "Changing Gravy scaling should succeed",
         stepMessagePrefix,
         ++checkIndex,
@@ -245,8 +245,8 @@ Deno.test("MenuCollectionConcept - Principle Verification", async (t) => {
         recipe: RECIPE_TURKEY,
       });
       assertAndLog(
-        "error" in removeTurkeyResult,
-        false,
+        "success" in removeTurkeyResult,
+        true,
         "Removing Turkey should succeed",
         stepMessagePrefix,
         ++checkIndex,
@@ -258,8 +258,8 @@ Deno.test("MenuCollectionConcept - Principle Verification", async (t) => {
         scalingFactor: 1.2,
       });
       assertAndLog(
-        "error" in addHamResult,
-        false,
+        "success" in addHamResult,
+        true,
         "Adding Ham should succeed",
         stepMessagePrefix,
         ++checkIndex,
@@ -478,9 +478,9 @@ Deno.test("MenuCollectionConcept - updateMenu Action", async (t) => {
         name: "New Name",
       });
       assertAndLog(
-        "error" in updateResult,
-        false,
-        "Should not return an error on successful name update",
+        "success" in updateResult,
+        true,
+        "Should succeed on successful name update",
         stepMessagePrefix,
         ++checkIndex,
       );
@@ -506,9 +506,9 @@ Deno.test("MenuCollectionConcept - updateMenu Action", async (t) => {
         date: newDate,
       });
       assertAndLog(
-        "error" in updateResult,
-        false,
-        "Should not return an error on successful date update",
+        "success" in updateResult,
+        true,
+        "Should succeed on successful date update",
         stepMessagePrefix,
         ++checkIndex,
       );
@@ -627,6 +627,151 @@ Deno.test("MenuCollectionConcept - updateMenu Action", async (t) => {
         ++checkIndex,
       );
     });
+  } finally {
+    await client.close();
+  }
+});
+
+Deno.test("MenuCollectionConcept - deleteMenu Action", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const menuCollection = new MenuCollectionConcept(db);
+  let checkIndex = 0;
+  const stepMessagePrefix = "deleteMenu Action Test";
+
+  try {
+    const futureDate = getFutureDate(4);
+    const createResult = await menuCollection.createMenu({
+      name: "Menu to Delete",
+      date: futureDate,
+      actingUser: TEST_USER_ALICE,
+    });
+    const menuId = (createResult as { menu: ID }).menu;
+
+    await t.step("1. Successfully delete an existing menu", async () => {
+      const currentStepMsg = "1. Successfully delete an existing menu";
+      printStepHeader(currentStepMsg);
+      const deleteResult = await menuCollection.deleteMenu({ menu: menuId });
+      assertAndLog(
+        "success" in deleteResult,
+        true,
+        "Deleting menu should succeed",
+        stepMessagePrefix,
+        ++checkIndex,
+      );
+
+      // Verify menu no longer exists
+      const menuDetails = await menuCollection._getMenuDetails({ menu: menuId });
+      assertAndLog(
+        "error" in menuDetails,
+        true,
+        "Menu should no longer exist after deletion",
+        stepMessagePrefix,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (menuDetails as { error: string }).error,
+        `Menu with ID ${menuId} not found.`,
+        "Error message should indicate menu not found",
+        stepMessagePrefix,
+        ++checkIndex,
+      );
+    });
+
+    await t.step("2. Fail to delete a non-existent menu", async () => {
+      const currentStepMsg = "2. Fail to delete a non-existent menu";
+      printStepHeader(currentStepMsg);
+      const nonExistentMenu = freshID();
+      const deleteResult = await menuCollection.deleteMenu({
+        menu: nonExistentMenu,
+      });
+      assertAndLog(
+        "error" in deleteResult,
+        true,
+        "Deleting non-existent menu should fail",
+        stepMessagePrefix,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (deleteResult as { error: string }).error,
+        `Menu with ID ${nonExistentMenu} not found.`,
+        "Error message should match",
+        stepMessagePrefix,
+        ++checkIndex,
+      );
+    });
+
+    await t.step(
+      "3. Successfully delete a menu with recipes (recipes are also deleted with menu)",
+      async () => {
+        const currentStepMsg =
+          "3. Successfully delete a menu with recipes (recipes are also deleted with menu)";
+        printStepHeader(currentStepMsg);
+        const futureDate2 = getFutureDate(5);
+        const createResult2 = await menuCollection.createMenu({
+          name: "Menu with Recipes to Delete",
+          date: futureDate2,
+          actingUser: TEST_USER_ALICE,
+        });
+        const menuId2 = (createResult2 as { menu: ID }).menu;
+
+        // Add some recipes to the menu
+        await menuCollection.addRecipe({
+          menu: menuId2,
+          recipe: RECIPE_TURKEY,
+          scalingFactor: 1.0,
+        });
+        await menuCollection.addRecipe({
+          menu: menuId2,
+          recipe: RECIPE_GRAVY,
+          scalingFactor: 0.5,
+        });
+
+        // Verify recipes are in the menu
+        const recipesBefore = await menuCollection._getRecipesInMenu({
+          menu: menuId2,
+        });
+        assertAndLog(
+          "error" in recipesBefore,
+          false,
+          "Query recipes should not return error",
+          stepMessagePrefix,
+          ++checkIndex,
+        );
+        const menuRecipesBefore =
+          (recipesBefore as { menuRecipes: Record<Recipe, number> }[])[0]
+            .menuRecipes;
+        assertAndLog(
+          Object.keys(menuRecipesBefore).length,
+          2,
+          "Menu should contain 2 recipes before deletion",
+          stepMessagePrefix,
+          ++checkIndex,
+        );
+
+        // Delete the menu
+        const deleteResult = await menuCollection.deleteMenu({ menu: menuId2 });
+        assertAndLog(
+          "success" in deleteResult,
+          true,
+          "Deleting menu with recipes should succeed",
+          stepMessagePrefix,
+          ++checkIndex,
+        );
+
+        // Verify menu no longer exists
+        const menuDetails = await menuCollection._getMenuDetails({
+          menu: menuId2,
+        });
+        assertAndLog(
+          "error" in menuDetails,
+          true,
+          "Menu should no longer exist after deletion",
+          stepMessagePrefix,
+          ++checkIndex,
+        );
+      },
+    );
   } finally {
     await client.close();
   }

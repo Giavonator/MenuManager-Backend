@@ -16,9 +16,11 @@
     register (username: String, password: String):\
             **requires** no User exists with username\
             **effects** creates new User w/ username and password, if first user created admin flag set to true\
+
     authenticate (username: String, password: String): (user: User)\
             **requires** User exists with that username and password\
             **effects** authenticated as returned User and can view other concepts data that User has
+
     deleteUser (userToDelete: User)\
             **requires**\
                 `userToDelete` is in `Users`\
@@ -39,7 +41,7 @@
                 and calling user is `user` or is an admin\
             **effects** `user.password` is set to `newPassword`
 
-**queries**
+**queries**\
     _getIsUserAdmin (user: User): (isAdmin: Bool)\
         **requires** `user` is in `Users`\
         **effects** returns `user.admin`
@@ -48,10 +50,10 @@
         **requires** true\
         **effects** returns the set of all `Users`
 
-    _getNumberOfAdmins (): (count: Number)\
-        **requires** true\
-        **effects** returns count(u in Users where `u.admin` is true)
+    _getNumberOfAdmins (): (count: Number)\
+        **requires** true\
+        **effects** returns count(u in Users where `u.admin` is true)
 
-    _getUsername (user: User): (username: String)\
-        **requires** `user` is in `Users`\
-        **effects** returns `user.username`
+    _getUsername (user: User): (username: String)\
+        **requires** `user` is in `Users`\
+        **effects** returns `user.username`

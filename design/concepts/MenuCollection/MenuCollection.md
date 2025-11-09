@@ -19,12 +19,16 @@
     **requires** `name` is not empty, `date` is in the future, `actingUser` exists. No other `Menu` exists for this `actingUser` on this `date`.\
     **effects** Creates a new `Menu` with the given `name`, `date`, and `owner`=`actingUser`. It will have an empty set of `menuRecipes`. Returns the new `Menu` ID. (Future ownership check would be handled by syncs or external authorization)
 
-  updateMenu (menu: Menu, name: String)\
-  updateMenu (menu: Menu, date: Date)\
-    **requires** `menu` exists, no `otherMenu` on date has the same `menu.user` for new date.\
-    **effects** Updates the specified attribute of the `menu`.
+  updateMenu (menu: Menu, name: String)\
+  updateMenu (menu: Menu, date: Date)\
+    **requires** `menu` exists, no `otherMenu` on date has the same `menu.user` for new date.\
+    **effects** Updates the specified attribute of the `menu`.
 
-  addRecipe (menu: Menu, recipe: Recipe, scalingFactor: Float)\
+  deleteMenu (menu: Menu)\
+    **requires** `menu` exists.\
+    **effects** Removes `menu` from the set of Menus.
+
+  addRecipe (menu: Menu, recipe: Recipe, scalingFactor: Float)\
     **requires** `menu` exists, `recipe` exists. `scalingFactor` > 0. `menu` does not already contain `recipe`.\
     **effects** Adds the `recipe` with its `scalingFactor` to `menu.menuRecipes`.
 

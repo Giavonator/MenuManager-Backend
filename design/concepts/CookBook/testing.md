@@ -167,7 +167,7 @@ await t.step("1. Administrator creates a new item (ground pepper)", async () => 
 
 A crucial aspect of testing concepts is correctly accessing the results returned by actions and queries, which follow specific patterns:
 
-*   **Actions**: Typically return a `Result<T>` type, which is either `T` (a dictionary object with specific fields, potentially `Empty` for no explicit return) or `{ error: string }`.
+*   **Actions**: Typically return a `Result<T>` type, which is either `T` (a dictionary object with specific fields, or `{ success: true }` for actions that don't return data) or `{ error: string }`.
 *   **Queries**: Always return a `Result<T[]>` type, meaning an *array* of results or an `{ error: string }` object.
 
 Here's how to properly handle these outputs:
@@ -185,11 +185,11 @@ Before accessing any data, always determine if the operation was successful or i
     ```
     Here, `"recipe" in createResult` is used as a type guard to confirm the success case.
 
-*   **For successful actions returning `Empty` (e.g., `Result<Empty>`):**
+*   **For successful actions returning `{ success: true }` (e.g., `Result<{ success: true }>`):**
     ```typescript
     const addPastaResult = await cookBook.addRecipeIngredient({ /* ... */ });
-    assertAndLog("error" in addPastaResult, false, "Adding pasta should succeed (no error)", stepMessage, ++checkIndex);
-    // No specific data to extract, just verify no error.
+    assertAndLog("success" in addPastaResult, true, "Adding pasta should succeed", stepMessage, ++checkIndex);
+    // Verify the success response.
     ```
 
 *   **For successful queries returning an array (e.g., `Result<Item[]>`):**

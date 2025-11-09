@@ -204,18 +204,31 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       }
       const boundInput = Object.fromEntries(entries);
 
+      const functionName = f.name || "unknown";
+      console.log(`[Query: ${functionName}] Executing query with input:`, boundInput);
+      
       const maybeArray = f(boundInput as never);
       if (
         typeof (maybeArray as Promise<unknown[]>).then === "function"
       ) {
         // async path
         const p = (maybeArray as Promise<unknown[]>).then((arr) => {
+          console.log(`[Query: ${functionName}] Query returned ${arr.length} result(s)`);
           processOutputs(frame, arr);
+        }).catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`[Query: ${functionName}] Query error:`, errorMessage);
+          if (error instanceof Error && error.stack) {
+            console.error(`[Query: ${functionName}] Stack trace:`, error.stack);
+          }
+          throw error;
         });
         promises.push(p);
       } else {
         // sync path
-        processOutputs(frame, maybeArray as unknown[]);
+        const arr = maybeArray as unknown[];
+        console.log(`[Query: ${functionName}] Query returned ${arr.length} result(s)`);
+        processOutputs(frame, arr);
       }
     }
 
@@ -259,29 +272,42 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       }
       const boundInput = Object.fromEntries(entries);
 
+      const functionName = f.name || "unknown";
+      console.log(`[Query: ${functionName}] Executing async query with input:`, boundInput);
+
       // Execute the function - expect array of bindings (async)
-      const functionOutputArray = await f(
-        boundInput as Parameters<TFunction>[0],
-      );
+      try {
+        const functionOutputArray = await f(
+          boundInput as Parameters<TFunction>[0],
+        );
+        console.log(`[Query: ${functionName}] Async query returned ${functionOutputArray.length} result(s)`);
 
-      for (const functionOutput of functionOutputArray) {
-        // Create new frame with output bindings
-        const newFrame = { ...frame };
-        for (const [outputKey, symbolKey] of Object.entries(output)) {
-          if (
-            typeof symbolKey === "symbol" &&
-            functionOutput &&
-            typeof functionOutput === "object" &&
-            outputKey in functionOutput
-          ) {
-            (newFrame as Record<symbol, unknown>)[symbolKey] =
-              (functionOutput as Record<string, unknown>)[
-                outputKey
-              ];
+        for (const functionOutput of functionOutputArray) {
+          // Create new frame with output bindings
+          const newFrame = { ...frame };
+          for (const [outputKey, symbolKey] of Object.entries(output)) {
+            if (
+              typeof symbolKey === "symbol" &&
+              functionOutput &&
+              typeof functionOutput === "object" &&
+              outputKey in functionOutput
+            ) {
+              (newFrame as Record<symbol, unknown>)[symbolKey] =
+                (functionOutput as Record<string, unknown>)[
+                  outputKey
+                ];
+            }
           }
-        }
 
-        result.push(newFrame as unknown as TNewFrame);
+          result.push(newFrame as unknown as TNewFrame);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[Query: ${functionName}] Async query error:`, errorMessage);
+        if (error instanceof Error && error.stack) {
+          console.error(`[Query: ${functionName}] Stack trace:`, error.stack);
+        }
+        throw error;
       }
     }
     return result;
