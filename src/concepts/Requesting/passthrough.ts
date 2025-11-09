@@ -63,6 +63,8 @@ export const inclusions: Record<string, string> = {
   "/api/PurchaseSystem/_getOptimalPurchase":
     "everyone can view optimal order purchase",
   "/api/PurchaseSystem/_getOrderCost": "everyone can view order costs",
+  "/api/PurchaseSystem/_getSelectOrderDetails":
+    "everyone can view select order details",
 };
 
 /**

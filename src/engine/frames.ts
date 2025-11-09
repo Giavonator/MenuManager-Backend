@@ -205,7 +205,6 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       const boundInput = Object.fromEntries(entries);
 
       const functionName = f.name || "unknown";
-      console.log(`[Query: ${functionName}] Executing query with input:`, boundInput);
       
       const maybeArray = f(boundInput as never);
       if (
@@ -213,7 +212,6 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       ) {
         // async path
         const p = (maybeArray as Promise<unknown[]>).then((arr) => {
-          console.log(`[Query: ${functionName}] Query returned ${arr.length} result(s)`);
           processOutputs(frame, arr);
         }).catch((error) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -227,7 +225,6 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       } else {
         // sync path
         const arr = maybeArray as unknown[];
-        console.log(`[Query: ${functionName}] Query returned ${arr.length} result(s)`);
         processOutputs(frame, arr);
       }
     }
@@ -273,14 +270,12 @@ export class Frames<TFrame extends Frame = Frame> extends Array<TFrame> {
       const boundInput = Object.fromEntries(entries);
 
       const functionName = f.name || "unknown";
-      console.log(`[Query: ${functionName}] Executing async query with input:`, boundInput);
 
       // Execute the function - expect array of bindings (async)
       try {
         const functionOutputArray = await f(
           boundInput as Parameters<TFunction>[0],
         );
-        console.log(`[Query: ${functionName}] Async query returned ${functionOutputArray.length} result(s)`);
 
         for (const functionOutput of functionOutputArray) {
           // Create new frame with output bindings

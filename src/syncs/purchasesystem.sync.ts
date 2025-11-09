@@ -488,14 +488,7 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
       const nameValue = frameRecord[name] as string;
       const quantityValue = frameRecord[quantity] as number;
 
-      console.log(
-        `[ScaleFactorCalc] Sync triggered for recipe '${recipeValue}', ingredient '${nameValue}', quantity: ${quantityValue}`,
-      );
-
       if (!recipeValue || !nameValue || typeof quantityValue !== "number") {
-        console.warn(
-          `[ScaleFactorCalc] Invalid frame data - recipe: ${recipeValue}, name: ${nameValue}, quantity: ${quantityValue}. Skipping.`,
-        );
         continue;
       }
 
@@ -517,9 +510,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
       ) as Promise<Frames>);
 
       if (recipeIngredientsFrames.length === 0) {
-        console.warn(
-          `[ScaleFactorCalc] Failed to get recipe ingredients for recipe '${recipeValue}' (ingredient: '${nameValue}'). Skipping scale factor calculation.`,
-        );
         continue;
       }
 
@@ -538,29 +528,17 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
         | undefined;
 
       if (!ingredientsArray || !Array.isArray(ingredientsArray)) {
-        console.warn(
-          `[ScaleFactorCalc] Invalid recipe ingredients format for recipe '${recipeValue}' (ingredient: '${nameValue}'). Expected array, got: ${typeof ingredientsArray}. Skipping scale factor calculation.`,
-        );
         continue;
       }
 
       const ingredient = ingredientsArray.find((ing) => ing.name === nameValue);
 
       if (!ingredient) {
-        console.warn(
-          `[ScaleFactorCalc] Ingredient '${nameValue}' not found in recipe '${recipeValue}'. Available ingredients: ${
-            ingredientsArray.map((ing) => ing.name).join(", ")
-          }. Skipping scale factor calculation.`,
-        );
         continue;
       }
 
       const recipeUnits = ingredient.units;
       const recipeQuantity = quantityValue;
-
-      console.log(
-        `[ScaleFactorCalc] Recipe ingredient found - name: '${nameValue}', quantity: ${recipeQuantity} ${recipeUnits}`,
-      );
 
       const itemFrames = await (new Frames(frame).query(
         StoreCatalog._getItemByName as unknown as (
@@ -615,9 +593,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
               const selectOrderId =
                 (orderValue as unknown as { _id: string })._id;
 
-              console.log(
-                `[ScaleFactorCalc] Found SelectOrder '${selectOrderId}' for item '${nameValue}' (recipe: '${recipeValue}')`,
-              );
 
               // Query SelectOrder details to get baseQuantity and baseUnits
               const selectOrderDetailsFrames = await (new Frames(soFrame).query(
@@ -634,9 +609,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
               ) as Promise<Frames>);
 
               if (selectOrderDetailsFrames.length === 0) {
-                console.warn(
-                  `[ScaleFactorCalc] Failed to get SelectOrder details for '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
@@ -657,37 +629,22 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
                 baseQuantityValue === undefined ||
                 baseUnitsValue === undefined
               ) {
-                console.warn(
-                  `[ScaleFactorCalc] Invalid SelectOrder details for '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). baseQuantity: ${baseQuantityValue}, baseUnits: ${baseUnitsValue}. Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
-              console.log(
-                `[ScaleFactorCalc] SelectOrder details - baseQuantity: ${baseQuantityValue} ${baseUnitsValue}`,
-              );
 
               // Handle edge cases
               if (baseQuantityValue === -1) {
-                console.warn(
-                  `[ScaleFactorCalc] SelectOrder '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}') has no atomic orders yet (baseQuantity = -1). Cannot calculate scale factor. Skipping.`,
-                );
                 continue;
               }
 
               if (baseQuantityValue <= 0) {
-                console.warn(
-                  `[ScaleFactorCalc] SelectOrder '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}') has invalid baseQuantity (${baseQuantityValue}, expected > 0). Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
               // Convert recipe quantity to baseUnits if units differ
               let convertedRecipeQuantity = recipeQuantity;
               if (recipeUnits !== baseUnitsValue) {
-                console.log(
-                  `[ScaleFactorCalc] Unit conversion needed - recipe: ${recipeQuantity} ${recipeUnits}, SelectOrder base: ${baseQuantityValue} ${baseUnitsValue}`,
-                );
                 // For common conversions:
                 const recipeUnitsLower = recipeUnits.toLowerCase();
                 const baseUnitsLower = baseUnitsValue.toLowerCase();
@@ -697,60 +654,36 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
                 ) {
                   // Same unit, different spelling
                   convertedRecipeQuantity = recipeQuantity;
-                  console.log(
-                    `[ScaleFactorCalc] Units match (different spelling) - no conversion needed`,
-                  );
                 } else if (
                   recipeUnitsLower === "oz" && baseUnitsLower === "oz"
                 ) {
                   convertedRecipeQuantity = recipeQuantity;
-                  console.log(
-                    `[ScaleFactorCalc] Units match (oz) - no conversion needed`,
-                  );
                 } else if (
                   recipeUnitsLower === "oz" && baseUnitsLower === "lbs"
                 ) {
                   // Convert oz to lbs: 1 lb = 16 oz
                   convertedRecipeQuantity = recipeQuantity / 16;
-                  console.log(
-                    `[ScaleFactorCalc] Converting ${recipeQuantity} oz to lbs: ${convertedRecipeQuantity} lbs (${recipeQuantity} / 16)`,
-                  );
                 } else if (
                   (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
                   baseUnitsLower === "oz"
                 ) {
                   // Convert lbs to oz: 1 lb = 16 oz
                   convertedRecipeQuantity = recipeQuantity * 16;
-                  console.log(
-                    `[ScaleFactorCalc] Converting ${recipeQuantity} lbs to oz: ${convertedRecipeQuantity} oz (${recipeQuantity} * 16)`,
-                  );
                 } else {
                   // For other cases, assume numeric conversion (units match)
-                  console.warn(
-                    `[ScaleFactorCalc] Unknown unit conversion from '${recipeUnits}' to '${baseUnitsValue}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). Assuming numeric conversion (no conversion applied).`,
-                  );
                   convertedRecipeQuantity = recipeQuantity;
                 }
               } else {
-                console.log(
-                  `[ScaleFactorCalc] Units match - no conversion needed (${recipeUnits} = ${baseUnitsValue})`,
-                );
               }
 
               // Calculate scale factor: recipeQuantity / baseQuantity
               const calculatedScaleFactor = convertedRecipeQuantity /
                 baseQuantityValue;
 
-              console.log(
-                `[ScaleFactorCalc] Scale factor calculation: ${convertedRecipeQuantity} ${baseUnitsValue} / ${baseQuantityValue} ${baseUnitsValue} = ${calculatedScaleFactor}`,
-              );
 
               if (
                 !isFinite(calculatedScaleFactor) || calculatedScaleFactor <= 0
               ) {
-                console.warn(
-                  `[ScaleFactorCalc] Invalid scale factor calculated: ${calculatedScaleFactor} for recipe quantity ${convertedRecipeQuantity} ${baseUnitsValue} and base quantity ${baseQuantityValue} ${baseUnitsValue} (ingredient: '${nameValue}', recipe: '${recipeValue}'). Skipping.`,
-                );
                 continue;
               }
 
@@ -794,9 +727,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
                 ) {
                   const compositeOrderId =
                     (coOrderValue as unknown as { _id: string })._id;
-                  console.log(
-                    `[ScaleFactorCalc] SUCCESS - Adding to resultFrames: recipe '${recipeValue}', ingredient '${nameValue}', SelectOrder '${selectOrderId}', CompositeOrder '${compositeOrderId}', scaleFactor: ${calculatedScaleFactor}`,
-                  );
                   resultFrames.push({
                     ...coFrame,
                     [selectOrder]: selectOrderId,
@@ -809,16 +739,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
           }
         }
       }
-    }
-
-    if (resultFrames.length === 0) {
-      console.warn(
-        `[ScaleFactorCalc] No result frames generated. Sync will not fire - SelectOrder will not be added to CompositeOrder.`,
-      );
-    } else {
-      console.log(
-        `[ScaleFactorCalc] Returning ${resultFrames.length} result frame(s)`,
-      );
     }
 
     return resultFrames;
@@ -989,17 +909,10 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
       const quantityValue = frameRecord[quantity] as number;
       const unitsValue = frameRecord[units] as string;
 
-      console.log(
-        `[ScaleFactorCalc] Update sync triggered for recipe '${recipeValue}', ingredient '${nameValue}', quantity: ${quantityValue} ${unitsValue}`,
-      );
-
       if (
         !recipeValue || !nameValue || typeof quantityValue !== "number" ||
         !unitsValue
       ) {
-        console.warn(
-          `[ScaleFactorCalc] Invalid frame data - recipe: ${recipeValue}, name: ${nameValue}, quantity: ${quantityValue}, units: ${unitsValue}. Skipping.`,
-        );
         continue;
       }
 
@@ -1021,9 +934,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
       ) as Promise<Frames>);
 
       if (recipeIngredientsFrames.length === 0) {
-        console.warn(
-          `[ScaleFactorCalc] Failed to get recipe ingredients for recipe '${recipeValue}' (ingredient: '${nameValue}'). Skipping scale factor calculation.`,
-        );
         continue;
       }
 
@@ -1042,29 +952,17 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
         | undefined;
 
       if (!ingredientsArray || !Array.isArray(ingredientsArray)) {
-        console.warn(
-          `[ScaleFactorCalc] Invalid recipe ingredients format for recipe '${recipeValue}' (ingredient: '${nameValue}'). Expected array, got: ${typeof ingredientsArray}. Skipping scale factor calculation.`,
-        );
         continue;
       }
 
       const ingredient = ingredientsArray.find((ing) => ing.name === nameValue);
 
       if (!ingredient) {
-        console.warn(
-          `[ScaleFactorCalc] Ingredient '${nameValue}' not found in recipe '${recipeValue}'. Available ingredients: ${
-            ingredientsArray.map((ing) => ing.name).join(", ")
-          }. Skipping scale factor calculation.`,
-        );
         continue;
       }
 
       const recipeUnits = ingredient.units;
       const recipeQuantity = quantityValue;
-
-      console.log(
-        `[ScaleFactorCalc] Recipe ingredient found - name: '${nameValue}', quantity: ${recipeQuantity} ${recipeUnits}`,
-      );
 
       const itemFrames = await (new Frames(frame).query(
         StoreCatalog._getItemByName as unknown as (
@@ -1076,9 +974,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
 
       // If item not found, skip this sync
       if (itemFrames.length === 0) {
-        console.warn(
-          `[ScaleFactorCalc] Item '${nameValue}' not found in StoreCatalog for recipe '${recipeValue}'. Cannot update scale factor. Skipping.`,
-        );
         continue;
       }
 
@@ -1122,9 +1017,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
               const selectOrderId =
                 (orderValue as unknown as { _id: string })._id;
 
-              console.log(
-                `[ScaleFactorCalc] Found SelectOrder '${selectOrderId}' for item '${nameValue}' (recipe: '${recipeValue}')`,
-              );
 
               // Query SelectOrder details to get baseQuantity and baseUnits
               const selectOrderDetailsFrames = await (new Frames(soFrame).query(
@@ -1141,9 +1033,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
               ) as Promise<Frames>);
 
               if (selectOrderDetailsFrames.length === 0) {
-                console.warn(
-                  `[ScaleFactorCalc] Failed to get SelectOrder details for '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
@@ -1164,37 +1053,22 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
                 baseQuantityValue === undefined ||
                 baseUnitsValue === undefined
               ) {
-                console.warn(
-                  `[ScaleFactorCalc] Invalid SelectOrder details for '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). baseQuantity: ${baseQuantityValue}, baseUnits: ${baseUnitsValue}. Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
-              console.log(
-                `[ScaleFactorCalc] SelectOrder details - baseQuantity: ${baseQuantityValue} ${baseUnitsValue}`,
-              );
 
               // Handle edge cases
               if (baseQuantityValue === -1) {
-                console.warn(
-                  `[ScaleFactorCalc] SelectOrder '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}') has no atomic orders yet (baseQuantity = -1). Cannot calculate scale factor. Skipping.`,
-                );
                 continue;
               }
 
               if (baseQuantityValue <= 0) {
-                console.warn(
-                  `[ScaleFactorCalc] SelectOrder '${selectOrderId}' (ingredient: '${nameValue}', recipe: '${recipeValue}') has invalid baseQuantity (${baseQuantityValue}, expected > 0). Skipping scale factor calculation.`,
-                );
                 continue;
               }
 
               // Convert recipe quantity to baseUnits if units differ
               let convertedRecipeQuantity = recipeQuantity;
               if (recipeUnits !== baseUnitsValue) {
-                console.log(
-                  `[ScaleFactorCalc] Unit conversion needed - recipe: ${recipeQuantity} ${recipeUnits}, SelectOrder base: ${baseQuantityValue} ${baseUnitsValue}`,
-                );
                 // For common conversions:
                 const recipeUnitsLower = recipeUnits.toLowerCase();
                 const baseUnitsLower = baseUnitsValue.toLowerCase();
@@ -1204,60 +1078,36 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
                 ) {
                   // Same unit, different spelling
                   convertedRecipeQuantity = recipeQuantity;
-                  console.log(
-                    `[ScaleFactorCalc] Units match (different spelling) - no conversion needed`,
-                  );
                 } else if (
                   recipeUnitsLower === "oz" && baseUnitsLower === "oz"
                 ) {
                   convertedRecipeQuantity = recipeQuantity;
-                  console.log(
-                    `[ScaleFactorCalc] Units match (oz) - no conversion needed`,
-                  );
                 } else if (
                   recipeUnitsLower === "oz" && baseUnitsLower === "lbs"
                 ) {
                   // Convert oz to lbs: 1 lb = 16 oz
                   convertedRecipeQuantity = recipeQuantity / 16;
-                  console.log(
-                    `[ScaleFactorCalc] Converting ${recipeQuantity} oz to lbs: ${convertedRecipeQuantity} lbs (${recipeQuantity} / 16)`,
-                  );
                 } else if (
                   (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
                   baseUnitsLower === "oz"
                 ) {
                   // Convert lbs to oz: 1 lb = 16 oz
                   convertedRecipeQuantity = recipeQuantity * 16;
-                  console.log(
-                    `[ScaleFactorCalc] Converting ${recipeQuantity} lbs to oz: ${convertedRecipeQuantity} oz (${recipeQuantity} * 16)`,
-                  );
                 } else {
                   // For other cases, assume numeric conversion (units match)
-                  console.warn(
-                    `[ScaleFactorCalc] Unknown unit conversion from '${recipeUnits}' to '${baseUnitsValue}' (ingredient: '${nameValue}', recipe: '${recipeValue}'). Assuming numeric conversion (no conversion applied).`,
-                  );
                   convertedRecipeQuantity = recipeQuantity;
                 }
               } else {
-                console.log(
-                  `[ScaleFactorCalc] Units match - no conversion needed (${recipeUnits} = ${baseUnitsValue})`,
-                );
               }
 
               // Calculate scale factor: recipeQuantity / baseQuantity
               const calculatedScaleFactor = convertedRecipeQuantity /
                 baseQuantityValue;
 
-              console.log(
-                `[ScaleFactorCalc] Scale factor calculation: ${convertedRecipeQuantity} ${baseUnitsValue} / ${baseQuantityValue} ${baseUnitsValue} = ${calculatedScaleFactor}`,
-              );
 
               if (
                 !isFinite(calculatedScaleFactor) || calculatedScaleFactor <= 0
               ) {
-                console.warn(
-                  `[ScaleFactorCalc] Invalid scale factor calculated: ${calculatedScaleFactor} for recipe quantity ${convertedRecipeQuantity} ${baseUnitsValue} and base quantity ${baseQuantityValue} ${baseUnitsValue} (ingredient: '${nameValue}', recipe: '${recipeValue}'). Skipping.`,
-                );
                 continue;
               }
 
@@ -1301,9 +1151,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
                 ) {
                   const compositeOrderId =
                     (coOrderValue as unknown as { _id: string })._id;
-                  console.log(
-                    `[ScaleFactorCalc] SUCCESS - Adding to resultFrames: recipe '${recipeValue}', ingredient '${nameValue}', SelectOrder '${selectOrderId}', CompositeOrder '${compositeOrderId}', scaleFactor: ${calculatedScaleFactor}`,
-                  );
                   resultFrames.push({
                     ...coFrame,
                     [selectOrder]: selectOrderId,
@@ -1316,16 +1163,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
           }
         }
       }
-    }
-
-    if (resultFrames.length === 0) {
-      console.warn(
-        `[ScaleFactorCalc] No result frames generated for update. Sync will not fire.`,
-      );
-    } else {
-      console.log(
-        `[ScaleFactorCalc] Returning ${resultFrames.length} result frame(s) for update`,
-      );
     }
 
     return resultFrames;

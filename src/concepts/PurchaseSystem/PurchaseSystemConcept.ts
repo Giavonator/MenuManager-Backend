@@ -1336,10 +1336,6 @@ export default class PurchaseSystemConcept {
   ): Promise<CalculateOptimalPurchaseOutput> {
     try {
       const { compositeOrders: compositeOrderIDs } = input;
-      console.log(
-        `[OptimalPurchase] Starting calculateOptimalPurchase for ${compositeOrderIDs.length} composite order(s):`,
-        compositeOrderIDs,
-      );
       const processedRootNodes = new Set<CompositeOrder>();
 
       for (const initialCompositeOrderID of compositeOrderIDs) {
@@ -1347,31 +1343,18 @@ export default class PurchaseSystemConcept {
           _id: initialCompositeOrderID,
         });
         if (!initialCompositeOrder) {
-          console.warn(
-            `[OptimalPurchase] CompositeOrder with ID '${initialCompositeOrderID}' not found. Skipping.`,
-          );
           continue;
         }
 
         if (initialCompositeOrder.purchased) {
-          console.log(
-            `[OptimalPurchase] CompositeOrder '${initialCompositeOrderID}' (associateID: ${initialCompositeOrder.associateID}) is already purchased. Skipping.`,
-          );
           continue; // Skip if already purchased
         }
 
         const rootOrderID = initialCompositeOrder.rootOrder;
         if (processedRootNodes.has(rootOrderID)) {
-          console.log(
-            `[OptimalPurchase] Root order '${rootOrderID}' already processed in this call. Skipping.`,
-          );
           continue; // Already processed this root tree in this call
         }
         processedRootNodes.add(rootOrderID);
-
-        console.log(
-          `[OptimalPurchase] Processing root order '${rootOrderID}' for CompositeOrder '${initialCompositeOrderID}' (associateID: ${initialCompositeOrder.associateID})`,
-        );
 
         const compositeOrdersInTree = new Map<
           CompositeOrder,
@@ -1408,21 +1391,8 @@ export default class PurchaseSystemConcept {
             _id: selectOrderID,
           });
           if (!selectOrderDoc || selectOrderDoc.baseQuantity === -1) {
-            if (!selectOrderDoc) {
-              console.warn(
-                `[OptimalPurchase] SelectOrder '${selectOrderID}' not found. Skipping.`,
-              );
-            } else if (selectOrderDoc.baseQuantity === -1) {
-              console.warn(
-                `[OptimalPurchase] SelectOrder '${selectOrderID}' has no atomic orders (baseQuantity = -1). Skipping.`,
-              );
-            }
             continue; // Skip if no options or uninitialized base quantity
           }
-
-          console.log(
-            `[OptimalPurchase] Optimizing SelectOrder '${selectOrderID}' - baseQuantity: ${selectOrderDoc.baseQuantity} ${selectOrderDoc.baseUnits}`,
-          );
 
           let bestAtomicOption: AtomicOrderDoc | null = null;
           let minCostForBaseQuantity = Infinity;
@@ -1432,27 +1402,17 @@ export default class PurchaseSystemConcept {
             .find({ _id: { $in: selectOrderDoc.childAtomicOrders } })
             .toArray();
 
-          console.log(
-            `[OptimalPurchase] SelectOrder '${selectOrderID}' has ${atomicOptions.length} atomic option(s)`,
-          );
-
           for (const atomicOption of atomicOptions) {
             if (atomicOption.quantity <= 0) continue; // Invalid atomic option (e.g., division by zero)
 
             if (atomicOption.units !== selectOrderDoc.baseUnits) {
-              console.warn(
-                `[OptimalPurchase] Unit mismatch for SelectOrder '${selectOrderID}' (base: ${selectOrderDoc.baseUnits}) and AtomicOrder '${atomicOption._id}' (prov: ${atomicOption.units}). Assuming cost calculation is based on numeric quantity despite unit difference.`,
-              );
+              // Unit mismatch - assuming cost calculation is based on numeric quantity despite unit difference
             }
 
             const numUnitsToBuy = Math.ceil(
               selectOrderDoc.baseQuantity / atomicOption.quantity,
             );
             const currentOptionCost = numUnitsToBuy * atomicOption.price;
-
-            console.log(
-              `[OptimalPurchase] AtomicOption '${atomicOption._id}': quantity=${atomicOption.quantity} ${atomicOption.units}, price=$${atomicOption.price}, unitsToBuy=${numUnitsToBuy} (ceil(${selectOrderDoc.baseQuantity}/${atomicOption.quantity})), cost=$${currentOptionCost}`,
-            );
 
             if (currentOptionCost < minCostForBaseQuantity) {
               minCostForBaseQuantity = currentOptionCost;
@@ -1462,9 +1422,6 @@ export default class PurchaseSystemConcept {
           }
 
           if (bestAtomicOption) {
-            console.log(
-              `[OptimalPurchase] Best option for SelectOrder '${selectOrderID}': AtomicOrder '${bestAtomicOption._id}', unitsToBuy=${optimalAtomicUnitsToBuyForBase}, cost=$${minCostForBaseQuantity}`,
-            );
             baseSelectOrderOptimalChoices.set(selectOrderID, {
               atomicId: bestAtomicOption._id,
               quantity: optimalAtomicUnitsToBuyForBase,
@@ -1474,10 +1431,6 @@ export default class PurchaseSystemConcept {
               atomicPrice: bestAtomicOption.price,
               baseUnits: selectOrderDoc.baseUnits,
             });
-          } else {
-            console.warn(
-              `[OptimalPurchase] No valid atomic option found for SelectOrder '${selectOrderID}'. Cost/quantity contribution will be 0.`,
-            );
           }
           // If no bestAtomicOption found (e.g., no compatible atomic orders), it's not added to the map.
           // This implies a cost/quantity contribution of 0 from this SelectOrder.
@@ -1518,10 +1471,6 @@ export default class PurchaseSystemConcept {
             currentCompositeID,
           )!; // Get from our cached map
 
-          console.log(
-            `[OptimalPurchase] Processing CompositeOrder '${currentCompositeID}' (associateID: ${currentComposite.associateID})`,
-          );
-
           let currentCompositeTotalCost = 0;
           const currentCompositeOptimalPurchase: Record<AtomicOrder, number> =
             {};
@@ -1533,10 +1482,6 @@ export default class PurchaseSystemConcept {
               currentComposite.childSelectOrders[selectID as SelectOrder];
             const baseOptimal = baseSelectOrderOptimalChoices.get(
               selectID as SelectOrder,
-            );
-
-            console.log(
-              `[OptimalPurchase] CompositeOrder '${currentCompositeID}' - child SelectOrder '${selectID}', scaleFactor: ${selectScale}`,
             );
 
             if (baseOptimal) {
@@ -1551,10 +1496,6 @@ export default class PurchaseSystemConcept {
               // Recalculate cost based on actual units to buy
               const costContribution = atomicQuantityToBuy * baseOptimal.atomicPrice;
 
-              console.log(
-                `[OptimalPurchase] SelectOrder '${selectID}': baseQuantity=${baseOptimal.baseQuantity} ${baseOptimal.baseUnits}, scaleFactor=${selectScale}, scaledQuantityNeeded=${scaledQuantityNeeded}, atomicPackageSize=${baseOptimal.atomicPackageSize}, atomicQuantityToBuy=${atomicQuantityToBuy} (ceil(${scaledQuantityNeeded}/${baseOptimal.atomicPackageSize})), costContribution=$${costContribution} (${atomicQuantityToBuy} * $${baseOptimal.atomicPrice})`,
-              );
-
               currentCompositeTotalCost += costContribution;
               // Track packages bought (existing)
               currentCompositeOptimalPurchase[atomicID] =
@@ -1563,10 +1504,6 @@ export default class PurchaseSystemConcept {
               // Track quantity needed (not packages bought)
               quantitiesNeededMap[atomicID] =
                 (quantitiesNeededMap[atomicID] || 0) + scaledQuantityNeeded;
-            } else {
-              console.warn(
-                `[OptimalPurchase] SelectOrder '${selectID}' not found in baseSelectOrderOptimalChoices for CompositeOrder '${currentCompositeID}'. Skipping cost/quantity contribution.`,
-              );
             }
           }
 
@@ -1593,10 +1530,6 @@ export default class PurchaseSystemConcept {
               continue;
             }
 
-            console.log(
-              `[OptimalPurchase] CompositeOrder '${currentCompositeID}' - child CompositeOrder '${childCompID}', scaleFactor: ${childScale}`,
-            );
-
             // Accumulate scaled quantities needed from this child composite
             for (const atomicID in childResults.optimal) {
               // Get or cache atomic order document
@@ -1606,9 +1539,6 @@ export default class PurchaseSystemConcept {
                   _id: atomicID as AtomicOrder,
                 });
                 if (!foundDoc) {
-                  console.warn(
-                    `[OptimalPurchase] AtomicOrder '${atomicID}' not found when processing child CompositeOrder '${childCompID}'. Skipping.`,
-                  );
                   continue;
                 }
                 atomicOrderDoc = foundDoc;
@@ -1622,9 +1552,6 @@ export default class PurchaseSystemConcept {
               if (childQuantityNeeded === 0) {
                 const childAtomicPackages = childResults.optimal[atomicID as AtomicOrder];
                 childQuantityNeeded = childAtomicPackages * atomicOrderDoc.quantity;
-                console.warn(
-                  `[OptimalPurchase] Child CompositeOrder '${childCompID}' has no quantity needed for AtomicOrder '${atomicID}'. Using fallback: packages (${childAtomicPackages}) × packageSize (${atomicOrderDoc.quantity}) = ${childQuantityNeeded}. This may cause over-purchasing.`,
-                );
               }
 
               // Scale the quantity needed
@@ -1635,10 +1562,6 @@ export default class PurchaseSystemConcept {
                 atomicID as AtomicOrder,
                 (aggregatedQuantitiesNeeded.get(atomicID as AtomicOrder) || 0) + scaledQuantityNeeded,
               );
-
-              console.log(
-                `[OptimalPurchase] Child CompositeOrder '${childCompID}' - AtomicOrder '${atomicID}': childQuantityNeeded=${childQuantityNeeded} ${atomicOrderDoc.units}, scaleFactor=${childScale}, scaledQuantityNeeded=${scaledQuantityNeeded}, accumulatedTotal=${aggregatedQuantitiesNeeded.get(atomicID as AtomicOrder)}`,
-              );
             }
           }
 
@@ -1646,9 +1569,6 @@ export default class PurchaseSystemConcept {
           for (const [atomicID, totalQuantityNeeded] of aggregatedQuantitiesNeeded) {
             const atomicOrderDoc = atomicOrderDocsCache.get(atomicID as AtomicOrder);
             if (!atomicOrderDoc) {
-              console.warn(
-                `[OptimalPurchase] AtomicOrder '${atomicID}' not found in cache during aggregation. Skipping.`,
-              );
               continue;
             }
 
@@ -1671,16 +1591,7 @@ export default class PurchaseSystemConcept {
 
             // Add to total cost
             currentCompositeTotalCost += totalCost;
-
-            console.log(
-              `[OptimalPurchase] Aggregated AtomicOrder '${atomicID}': totalQuantityNeeded=${totalQuantityNeeded} ${atomicOrderDoc.units}, totalPackagesNeeded=${totalPackagesNeeded} (ceil(${totalQuantityNeeded}/${atomicOrderDoc.quantity})), totalCost=$${totalCost} (${totalPackagesNeeded} * $${atomicOrderDoc.price})`,
-            );
           }
-
-          console.log(
-            `[OptimalPurchase] CompositeOrder '${currentCompositeID}' (associateID: ${currentComposite.associateID}) - Final totalCost: $${currentCompositeTotalCost}, optimalPurchase:`,
-            currentCompositeOptimalPurchase,
-          );
 
           // Cache the results for this composite order (for its parents to use)
           calculatedIntermediateResults.set(currentCompositeID, {

@@ -69,9 +69,6 @@ export default class RequestingConcept {
   constructor(private readonly db: Db) {
     this.requests = this.db.collection(PREFIX + "requests");
     this.timeout = REQUESTING_TIMEOUT;
-    console.log(
-      `\nRequesting concept initialized with a timeout of ${this.timeout}ms.`,
-    );
   }
 
   /**
@@ -183,14 +180,11 @@ export default class RequestingConcept {
   async _getRequestInput(
     { request }: { request: Request },
   ): Promise<Array<{ input: { path: string; [key: string]: unknown } }>> {
-    console.log(`[Query: _getRequestInput] Querying request input for request: ${request}`);
     try {
       const requestDoc = await this.requests.findOne({ _id: request });
       if (!requestDoc) {
-        console.log(`[Query: _getRequestInput] Request ${request} not found in database`);
         return [];
       }
-      console.log(`[Query: _getRequestInput] Request ${request} found - input fields:`, Object.keys(requestDoc.input));
       return [{ input: requestDoc.input }];
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
