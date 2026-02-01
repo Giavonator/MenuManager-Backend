@@ -15,13 +15,13 @@
     a menuRecipes Map of Recipe to Float // Map of RecipeID (from CookBook) to its specific scaling factor within this menu\
 
 **actions**\
-  createMenu (name: String, date: Date, actingUser: User): (menu: Menu)\
-    **requires** `name` is not empty, `date` is in the future, `actingUser` exists. No other `Menu` exists for this `actingUser` on this `date`.\
+  createMenu (name: String, date: Date, actingUser: User): (menu: Menu)\
+    **requires** `name` is not empty, `actingUser` exists. No other `Menu` exists for this `date`.\
     **effects** Creates a new `Menu` with the given `name`, `date`, and `owner`=`actingUser`. It will have an empty set of `menuRecipes`. Returns the new `Menu` ID. (Future ownership check would be handled by syncs or external authorization)
 
   updateMenu (menu: Menu, name: String)\
   updateMenu (menu: Menu, date: Date)\
-    **requires** `menu` exists, no `otherMenu` on date has the same `menu.user` for new date.\
+    **requires** `menu` exists, no `otherMenu` exists for the new date.\
     **effects** Updates the specified attribute of the `menu`.
 
   deleteMenu (menu: Menu)\

@@ -105,10 +105,10 @@ export const UpdateMenuRequest: Sync = ({
   request,
   menu,
   session,
-  name,
   date,
   isAdmin,
   owner,
+  requestInput,
 }) => ({
   when: actions(
     [
@@ -117,8 +117,6 @@ export const UpdateMenuRequest: Sync = ({
         path: "/MenuCollection/updateMenu",
         menu,
         session,
-        name,
-        date,
       },
       { request },
     ],
@@ -135,11 +133,28 @@ export const UpdateMenuRequest: Sync = ({
       return new Frames(); // No valid session, return empty frames
     }
 
+    // Pull full request input to access optional fields (name/date).
+    const framesWithRequestInput = await (frames.query(
+      Requesting._getRequestInput as unknown as (
+        input: { request: string },
+      ) => Promise<Array<{ input: { path: string; [key: string]: unknown } }>>,
+      { request },
+      { input: requestInput },
+    ) as Promise<Frames>);
+
     // Extract user from session and get menu owner
     const authCheckedFrames = new Frames();
-    for (const frame of frames) {
+    for (const frame of framesWithRequestInput) {
       const frameRecord = frame as Record<symbol, unknown>;
       const sessionValue = frameRecord[session] as string;
+      const input = frameRecord[requestInput] as
+        | { path: string; [key: string]: unknown }
+        | undefined;
+      const dateValue = input?.date;
+      const hasDate = dateValue !== undefined && dateValue !== null;
+      if (!hasDate) {
+        continue;
+      }
 
       // Get menu details to find owner
       const menuFrames = await (new Frames(frame).query(
@@ -179,7 +194,11 @@ export const UpdateMenuRequest: Sync = ({
               const userIsOwner = ownerValue === sessionValue;
               // Authorization: allow if (user is owner) OR (user is admin)
               if (userIsOwner || userIsAdmin) {
-                authCheckedFrames.push(adminFrame);
+                const enrichedFrame: Record<symbol, unknown> = {
+                  ...adminFrame,
+                };
+                enrichedFrame[date] = dateValue;
+                authCheckedFrames.push(enrichedFrame);
               }
             }
           }
@@ -190,7 +209,7 @@ export const UpdateMenuRequest: Sync = ({
   },
   then: actions([
     MenuCollection.updateMenu,
-    { menu, name, date },
+    { menu, date },
   ]),
 });
 

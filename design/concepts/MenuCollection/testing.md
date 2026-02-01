@@ -401,8 +401,8 @@ Deno.test("MenuCollectionConcept - createMenu Action", async (t) => {
       );
     });
 
-    await t.step("3. Fail to create menu with date in the past", async () => {
-      const currentStepMsg = "3. Fail to create menu with date in the past";
+    await t.step("3. Successfully create menu with date in the past", async () => {
+      const currentStepMsg = "3. Successfully create menu with date in the past";
       printStepHeader(currentStepMsg);
       const pastDate = getNormalizedDate(2020, 1, 1);
       const result = await menuCollection.createMenu({
@@ -411,26 +411,19 @@ Deno.test("MenuCollectionConcept - createMenu Action", async (t) => {
         actingUser: TEST_USER_ALICE,
       });
       assertAndLog(
-        "error" in result,
+        "menu" in result,
         true,
-        "Should return an error for past date",
-        stepMessagePrefix,
-        ++checkIndex,
-      );
-      assertAndLog(
-        (result as { error: string }).error,
-        "Menu date must be in the future.",
-        "Error message should match",
+        "Should allow past date",
         stepMessagePrefix,
         ++checkIndex,
       );
     });
 
     await t.step(
-      "4. Fail to create menu when one already exists for user on same date",
+      "4. Fail to create menu when one already exists on same date",
       async () => {
         const currentStepMsg =
-          "4. Fail to create menu when one already exists for user on same date";
+          "4. Fail to create menu when one already exists on same date";
         printStepHeader(currentStepMsg);
         const sharedDate = getFutureDate(9);
         await menuCollection.createMenu({
@@ -442,7 +435,7 @@ Deno.test("MenuCollectionConcept - createMenu Action", async (t) => {
         const result = await menuCollection.createMenu({
           name: "Duplicate Menu",
           date: sharedDate,
-          actingUser: TEST_USER_BOB,
+          actingUser: TEST_USER_ALICE,
         });
         assertAndLog(
           "error" in result,
@@ -453,9 +446,7 @@ Deno.test("MenuCollectionConcept - createMenu Action", async (t) => {
         );
         assertAndLog(
           (result as { error: string }).error,
-          `A menu already exists for user ${TEST_USER_BOB} on ${
-            sharedDate.toISOString().split("T")[0]
-          }.`,
+          `A menu already exists on ${sharedDate.toISOString().split("T")[0]}.`,
           "Error message should match for duplicate menu",
           stepMessagePrefix,
           ++checkIndex,
@@ -582,10 +573,10 @@ Deno.test("MenuCollectionConcept - updateMenu Action", async (t) => {
     });
 
     await t.step(
-      "5. Fail to update menu date to a conflicting date for the same user",
+      "5. Fail to update menu date to a conflicting date",
       async () => {
         const currentStepMsg =
-          "5. Fail to update menu date to a conflicting date for the same user";
+          "5. Fail to update menu date to a conflicting date";
         printStepHeader(currentStepMsg);
         const conflictDate = getFutureDate(20);
         await menuCollection.createMenu({
@@ -607,7 +598,7 @@ Deno.test("MenuCollectionConcept - updateMenu Action", async (t) => {
         );
         assertAndLog(
           (updateResult as { error: string }).error,
-          `Another menu already exists for user ${TEST_USER_ALICE} on ${
+          `Another menu already exists on ${
             conflictDate.toISOString().split("T")[0]
           }.`,
           "Error message should match for date conflict",
@@ -1261,27 +1252,24 @@ Deno.test("MenuCollectionConcept - Query Actions", async (t) => {
       );
     });
 
-    await t.step("8. _getMenuByDate for non-existent menu/date/owner", async () => {
+    await t.step("8. _getMenuByDate for non-existent menu/date", async () => {
       const currentStepMsg =
-        "8. _getMenuByDate for non-existent menu/date/owner";
+        "8. _getMenuByDate for non-existent menu/date";
       printStepHeader(currentStepMsg);
       const nonExistentDate = getFutureDate(30);
       const menuByDate = await menuCollection._getMenuByDate({
         date: nonExistentDate,
-        owner: TEST_USER_ALICE,
       });
       assertAndLog(
         "error" in menuByDate,
         true,
-        "Should return an error for non-existent menu by date/owner",
+        "Should return an error for non-existent menu by date",
         stepMessagePrefix,
         ++checkIndex,
       );
       assertAndLog(
         (menuByDate as { error: string }).error,
-        `No menu found for user ${TEST_USER_ALICE} on date ${
-          nonExistentDate.toISOString().split("T")[0]
-        }.`,
+        `No menu found for date ${nonExistentDate.toISOString().split("T")[0]}.`,
         "Error message should match",
         stepMessagePrefix,
         ++checkIndex,

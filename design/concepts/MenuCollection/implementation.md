@@ -90,7 +90,7 @@ export default class MenuCollectionConcept {
   /**
    * createMenu (name: String, date: Date, actingUser: User): (menu: Menu)
    *
-   * **requires** `name` is not empty, `date` is in the future, `actingUser` exists. No other `Menu` exists for this `actingUser` on this `date`.
+   * **requires** `name` is not empty, `actingUser` exists. No other `Menu` exists for this `date`.
    *
    * **effects** Creates a new `Menu` with the given `name`, `date`, and `owner`=`actingUser`. It will have an empty set of `menuRecipes`. Returns the new `Menu` ID.
    */
@@ -103,39 +103,25 @@ export default class MenuCollectionConcept {
         return { error: "Menu name cannot be empty." };
       }
 
-      // Precondition 2: `date` is in the future (compare date-only)
-      const today = new Date();
-      // Normalize today to start of day for comparison
-      today.setHours(0, 0, 0, 0);
-      today.setMilliseconds(0);
-      today.setSeconds(0);
-      today.setMinutes(0);
-
       const menuDate = new Date(date);
       menuDate.setHours(0, 0, 0, 0); // Normalize menuDate to start of day
       menuDate.setMilliseconds(0);
       menuDate.setSeconds(0);
       menuDate.setMinutes(0);
 
-      if (menuDate < today) {
-        return { error: "Menu date must be in the future." };
-      }
-
-      // Precondition 3: `actingUser` exists (assuming ID is sufficient for existence check from external system)
+      // Precondition 2: `actingUser` exists (assuming ID is sufficient for existence check from external system)
       if (!actingUser) {
         return { error: "Acting user must be provided." };
       }
 
-      // Precondition 4: No other `Menu` exists for this `actingUser` on this `date`.
+      // Precondition 3: No other `Menu` exists for this `date`.
       const existingMenu = await this.menus.findOne({
-        owner: actingUser,
         date: menuDate, // Direct Date object comparison will work for start-of-day normalized dates
       });
 
       if (existingMenu) {
         return {
-          error:
-            `A menu already exists for user ${actingUser} on ${toDateOnlyString(date)}.`,
+          error: `A menu already exists on ${toDateOnlyString(date)}.`,
         };
       }
 
@@ -161,7 +147,7 @@ export default class MenuCollectionConcept {
    * updateMenu (menu: Menu, name: String)
    * updateMenu (menu: Menu, date: Date)
    *
-   * **requires** `menu` exists. If `date` is updated, no `otherMenu` on date has the same `menu.user` for new date.
+   * **requires** `menu` exists. If `date` is updated, no `otherMenu` exists for the new date.
    *
    * **effects** Updates the specified attribute (`name` or `date`) of the `menu`.
    */
@@ -193,18 +179,16 @@ export default class MenuCollectionConcept {
         newMenuDate.setSeconds(0);
         newMenuDate.setMinutes(0);
 
-        // Precondition 2: no `otherMenu` on date has the same `menu.user` for new date.
-        // Check if another menu by the same owner already exists for the new date
+        // Precondition 2: no `otherMenu` exists for the new date.
+        // Check if another menu already exists for the new date
         const conflictMenu = await this.menus.findOne({
           _id: { $ne: menu }, // Exclude the current menu being updated
-          owner: existingMenu.owner,
           date: newMenuDate, // Direct Date object comparison for normalized dates
         });
 
         if (conflictMenu) {
           return {
-            error:
-              `Another menu already exists for user ${existingMenu.owner} on ${toDateOnlyString(date)}.`,
+            error: `Another menu already exists on ${toDateOnlyString(date)}.`,
           };
         }
         updateFields.date = newMenuDate;
@@ -444,13 +428,13 @@ export default class MenuCollectionConcept {
    *
    * **requires** A menu exists for `date` owned by `owner`.
    *
-   * **effects** Returns the `Menu` ID associated with that `date` and `owner`.
+   * **effects** Returns the `Menu` ID associated with that `date`.
    */
   async _getMenuByDate(
-    { date, owner }: GetMenuByDateInput,
+    { date }: GetMenuByDateInput,
   ): Promise<GetMenuByDateOutput> {
     try {
-      // Precondition: A menu exists for `date` owned by `owner`.
+      // Precondition: A menu exists for `date`.
       const searchDate = new Date(date);
       searchDate.setHours(0, 0, 0, 0); // Normalize for date-only comparison
       searchDate.setMilliseconds(0);
@@ -459,13 +443,11 @@ export default class MenuCollectionConcept {
 
       const menuDoc = await this.menus.findOne({
         date: searchDate,
-        owner: owner,
       });
 
       if (!menuDoc) {
         return {
-          error:
-            `No menu found for user ${owner} on date ${toDateOnlyString(date)}.`,
+          error: `No menu found for date ${toDateOnlyString(date)}.`,
         };
       }
 
@@ -473,7 +455,7 @@ export default class MenuCollectionConcept {
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(
-        `Error getting menu by date ${toDateOnlyString(date)} for owner ${owner}: ${errorMessage}`,
+        `Error getting menu by date ${toDateOnlyString(date)}: ${errorMessage}`,
       );
       return { error: `Failed to get menu by date: ${errorMessage}` };
     }

@@ -23,10 +23,9 @@ Here are some questions and points for clarification/improvement regarding the `
 
 ### Actions Section
 
-1.  **`createMenu` - `date` in the future**: The precondition `date is in the future` is a strong constraint.
-    *   **Question**: Is the purpose of `MenuCollection` strictly for *planning* future menus, or could it also be used for *archiving* or *documenting* past menus (e.g., "What did we have for Thanksgiving last year?")? If the latter, this precondition might be too restrictive and limit the concept's reusability for other scenarios where historical data is useful. If it is only for planning, perhaps the purpose could be more explicitly stated as "Organize and present a *future* collection of recipes..."
-2.  **`createMenu` - uniqueness constraint**: The precondition "No other `Menu` exists for this `actingUser` on this `date`" implies that a user can only have one menu per day.
-    *   **Question**: Is this the desired behavior? A user might want a "Christmas Breakfast" menu and a "Christmas Dinner" menu on the same date. If so, the uniqueness constraint should probably include the `name` as well, e.g., "No other `Menu` exists for this `actingUser` with this `name` on this `date`." This decision significantly impacts flexibility and reuse. The query `_getMenuByDate` also reinforces this "one menu per user per date" assumption.
+1.  **`createMenu` - date flexibility**: The design allows menus for any date (past, present, future), which supports both planning and historical archiving. Ensure examples and documentation consistently reflect this flexibility.
+2.  **`createMenu` - uniqueness constraint**: The precondition "No other `Menu` exists for this `date`" implies a single menu per day globally.
+    *   **Note**: This is stricter than a per-user constraint and should be explicitly stated wherever menus are created or queried.
 3.  **Missing `deleteMenu` action**: There is no action to delete an entire `Menu` entity.
     *   **Observation**: A concept that allows creation and modification of an entity (`Menu`) usually also provides an action for its complete removal. Without a `deleteMenu` action, users cannot remove menus they no longer need, which impacts the concept's "Completeness of functionality" regarding the lifecycle of `Menu` entities. This seems like a significant omission.
 
@@ -54,10 +53,9 @@ Here are some questions and points for clarification/improvement regarding the `
 
 ### Actions Section
 
-1.  **`createMenu` - `date` in the future**: The precondition `date is in the future` is a strong constraint.
-    *   **Question**: Is the purpose of `MenuCollection` strictly for *planning* future menus, or could it also be used for *archiving* or *documenting* past menus (e.g., "What did we have for Thanksgiving last year?")? If the latter, this precondition might be too restrictive and limit the concept's reusability for other scenarios where historical data is useful. If it is only for planning, perhaps the purpose could be more explicitly stated as "Organize and present a *future* collection of recipes..."
-2.  **`createMenu` - uniqueness constraint**: The precondition "No other `Menu` exists for this `actingUser` on this `date`" implies that a user can only have one menu per day.
-    *   **Question**: Is this the desired behavior? A user might want a "Christmas Breakfast" menu and a "Christmas Dinner" menu on the same date. If so, the uniqueness constraint should probably include the `name` as well, e.g., "No other `Menu` exists for this `actingUser` with this `name` on this `date`." This decision significantly impacts flexibility and reuse. The query `_getMenuByDate` also reinforces this "one menu per user per date" assumption.
+1.  **`createMenu` - date flexibility**: The design allows menus for any date (past, present, future), which supports both planning and historical archiving. Ensure examples and documentation consistently reflect this flexibility.
+2.  **`createMenu` - uniqueness constraint**: The precondition "No other `Menu` exists for this `date`" implies a single menu per day globally.
+    *   **Note**: This is stricter than a per-user constraint and should be explicitly stated wherever menus are created or queried.
 3.  **Missing `deleteMenu` action**: There is no action to delete an entire `Menu` entity.
     *   **Observation**: A concept that allows creation and modification of an entity (`Menu`) usually also provides an action for its complete removal. Without a `deleteMenu` action, users cannot remove menus they no longer need, which impacts the concept's "Completeness of functionality" regarding the lifecycle of `Menu` entities. This seems like a significant omission.
 
