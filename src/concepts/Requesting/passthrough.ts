@@ -123,4 +123,5 @@ export const exclusions: Array<string> = [
   "/api/PurchaseSystem/wouldFormCycle",
   "/api/PurchaseSystem/updateRootOrderRecursive",
   "/api/PurchaseSystem/dfsCollectTreeInfoAndReset",
+  "/api/InstacartAdapter/createShoppingList",
 ];
