@@ -244,19 +244,28 @@ export default class StoreCatalogConcept {
     const { purchaseOption } = args;
     const update: Partial<PurchaseOptionDoc> = {};
 
-    if ("quantity" in args) {
+    if (
+      "quantity" in args && args.quantity !== null &&
+      args.quantity !== undefined
+    ) {
       if (args.quantity <= 0) {
         return { error: "Quantity must be greater than 0." };
       }
       update.quantity = args.quantity;
-    } else if ("units" in args) {
+    } else if (
+      "units" in args && args.units !== null && args.units !== undefined
+    ) {
       update.units = args.units;
-    } else if ("price" in args) {
+    } else if (
+      "price" in args && args.price !== null && args.price !== undefined
+    ) {
       if (args.price < 0) {
         return { error: "Price cannot be negative." };
       }
       update.price = args.price;
-    } else if ("store" in args) {
+    } else if (
+      "store" in args && args.store !== null && args.store !== undefined
+    ) {
       update.store = args.store;
     }
 

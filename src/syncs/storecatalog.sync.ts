@@ -394,6 +394,7 @@ export const UpdatePurchaseOptionRequest: Sync = ({
   store,
   isAdmin,
   confirmed: poConfirmed,
+  requestInput,
 }) => ({
   when: actions(
     [
@@ -402,10 +403,8 @@ export const UpdatePurchaseOptionRequest: Sync = ({
         path: "/StoreCatalog/updatePurchaseOption",
         purchaseOption,
         session,
-        quantity,
-        units,
-        price,
-        store,
+        // Optional fields (quantity, units, price, store) are not in when clause
+        // They will be extracted from request input in where clause
       },
       { request },
     ],
@@ -448,6 +447,52 @@ export const UpdatePurchaseOptionRequest: Sync = ({
     }
     frames = adminCheckedFrames;
 
+    // Pull full request input so we can see which optional field is being updated
+    const framesWithRequestInput = await (frames.query(
+      Requesting._getRequestInput as unknown as (
+        input: { request: string },
+      ) => Promise<
+        Array<{ input: { path: string; [key: string]: unknown } }>
+      >,
+      { request },
+      { input: requestInput },
+    ) as Promise<Frames>);
+
+    const enrichedFrames = new Frames();
+    for (const frame of framesWithRequestInput) {
+      const frameRecord = frame as Record<symbol, unknown>;
+      const input = frameRecord[requestInput] as
+        | { path: string; [key: string]: unknown }
+        | undefined;
+      if (!input) continue;
+
+      const quantityValue = input.quantity;
+      const unitsValue = input.units;
+      const priceValue = input.price;
+      const storeValue = input.store;
+
+      const hasQuantity = quantityValue !== undefined && quantityValue !== null;
+      const hasUnits = unitsValue !== undefined && unitsValue !== null;
+      const hasPrice = priceValue !== undefined && priceValue !== null;
+      const hasStore = storeValue !== undefined && storeValue !== null;
+
+      if (!hasQuantity && !hasUnits && !hasPrice && !hasStore) {
+        continue;
+      }
+
+      const newFrame: Record<symbol, unknown> = { ...frame };
+
+      // Always bind all fields - use null for missing ones so then clause can match
+      // The concept's updatePurchaseOption will only use the fields that are present
+      newFrame[quantity] = hasQuantity ? quantityValue : null;
+      newFrame[units] = hasUnits ? unitsValue : null;
+      newFrame[price] = hasPrice ? priceValue : null;
+      newFrame[store] = hasStore ? storeValue : null;
+
+      enrichedFrames.push(newFrame);
+    }
+    frames = enrichedFrames;
+
     // Get purchase option details to check if it's confirmed
     frames = await (frames.query(
       StoreCatalog._getPurchaseOptionDetails as unknown as (
@@ -465,10 +510,9 @@ export const UpdatePurchaseOptionRequest: Sync = ({
 
     // Authorization: allow if (PO not confirmed) OR (user is admin)
     return frames.filter((frame) => {
-      const userIsAdmin = (frame as Record<symbol, unknown>)[isAdmin] ===
-        true;
-      const isConfirmed = (frame as Record<symbol, unknown>)[poConfirmed] ===
-        true;
+      const userIsAdmin = (frame as Record<symbol, unknown>)[isAdmin] === true;
+      const isConfirmed =
+        (frame as Record<symbol, unknown>)[poConfirmed] === true;
       return !isConfirmed || userIsAdmin;
     });
   },

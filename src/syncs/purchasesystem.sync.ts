@@ -268,6 +268,17 @@ export const UpdateAtomicOrderQuantityOnPurchaseOptionUpdate: Sync = ({
     {},
   ]),
   where: async (frames) => {
+    // Filter out frames where quantity is null or undefined
+    frames = frames.filter((frame) => {
+      const frameRecord = frame as Record<symbol, unknown>;
+      const quantityValue = frameRecord[quantity];
+      return quantityValue !== null && quantityValue !== undefined;
+    });
+
+    if (frames.length === 0) {
+      return new Frames();
+    }
+
     // Find AtomicOrder by associateID (purchaseOption)
     const resultFrames = new Frames();
     for (const frame of frames) {
@@ -332,6 +343,17 @@ export const UpdateAtomicOrderUnitsOnPurchaseOptionUpdate: Sync = ({
     {},
   ]),
   where: async (frames) => {
+    // Filter out frames where units is null or undefined
+    frames = frames.filter((frame) => {
+      const frameRecord = frame as Record<symbol, unknown>;
+      const unitsValue = frameRecord[units];
+      return unitsValue !== null && unitsValue !== undefined;
+    });
+
+    if (frames.length === 0) {
+      return new Frames();
+    }
+
     // Find AtomicOrder by associateID (purchaseOption)
     const resultFrames = new Frames();
     for (const frame of frames) {
@@ -396,6 +418,17 @@ export const UpdateAtomicOrderPriceOnPurchaseOptionUpdate: Sync = ({
     {},
   ]),
   where: async (frames) => {
+    // Filter out frames where price is null or undefined
+    frames = frames.filter((frame) => {
+      const frameRecord = frame as Record<symbol, unknown>;
+      const priceValue = frameRecord[price];
+      return priceValue !== null && priceValue !== undefined;
+    });
+
+    if (frames.length === 0) {
+      return new Frames();
+    }
+
     // Find AtomicOrder by associateID (purchaseOption)
     const resultFrames = new Frames();
     for (const frame of frames) {
@@ -593,7 +626,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
               const selectOrderId =
                 (orderValue as unknown as { _id: string })._id;
 
-
               // Query SelectOrder details to get baseQuantity and baseUnits
               const selectOrderDetailsFrames = await (new Frames(soFrame).query(
                 PurchaseSystem._getSelectOrderDetails as unknown as (
@@ -631,7 +663,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
               ) {
                 continue;
               }
-
 
               // Handle edge cases
               if (baseQuantityValue === -1) {
@@ -679,7 +710,6 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
               // Calculate scale factor: recipeQuantity / baseQuantity
               const calculatedScaleFactor = convertedRecipeQuantity /
                 baseQuantityValue;
-
 
               if (
                 !isFinite(calculatedScaleFactor) || calculatedScaleFactor <= 0
@@ -1017,7 +1047,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
               const selectOrderId =
                 (orderValue as unknown as { _id: string })._id;
 
-
               // Query SelectOrder details to get baseQuantity and baseUnits
               const selectOrderDetailsFrames = await (new Frames(soFrame).query(
                 PurchaseSystem._getSelectOrderDetails as unknown as (
@@ -1055,7 +1084,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
               ) {
                 continue;
               }
-
 
               // Handle edge cases
               if (baseQuantityValue === -1) {
@@ -1103,7 +1131,6 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
               // Calculate scale factor: recipeQuantity / baseQuantity
               const calculatedScaleFactor = convertedRecipeQuantity /
                 baseQuantityValue;
-
 
               if (
                 !isFinite(calculatedScaleFactor) || calculatedScaleFactor <= 0
