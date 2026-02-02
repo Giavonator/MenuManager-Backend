@@ -2,9 +2,6 @@ import { Db } from "npm:mongodb";
 import { Result } from "@utils/types.ts";
 import "jsr:@std/dotenv/load";
 
-// Declare collection prefix, use concept name
-const PREFIX = "InstacartAdapter" + ".";
-
 // Environment configuration
 const INSTACART_API_KEY = Deno.env.get("INSTACART_API_KEY");
 const INSTACART_BASE_URL = Deno.env.get("INSTACART_BASE_URL") ??
@@ -139,7 +136,7 @@ export default class InstacartAdapterConcept {
       }
 
       // Build linkback URL
-      const linkbackUrl = `${linkbackOrigin}/weekly-cart/${weekStart}`;
+      const linkbackUrl = `${linkbackOrigin}/weekly-cart`;
 
       // Transform line items to Instacart format
       const instacartLineItems: InstacartLineItem[] = lineItems.map((item) => {
