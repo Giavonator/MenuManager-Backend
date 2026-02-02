@@ -1930,122 +1930,131 @@ Deno.test("PurchaseSystemConcept - deleteSelectOrder", async (t) => {
   let atomicId1: ID, atomicId2: ID;
   let compositeId: ID;
 
-  await t.step("1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder", async () => {
-    const stepMessage = "1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder";
-    printStepHeader(stepMessage);
+  await t.step(
+    "1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder",
+    async () => {
+      const stepMessage =
+        "1. Setup: Create SelectOrders with AtomicOrders and CompositeOrder";
+      printStepHeader(stepMessage);
 
-    // Create SelectOrders
-    const createS1Result = await purchaseSystem.createSelectOrder({
-      associateID: "select:TestItem1" as ID,
-    });
-    assertAndLog(
-      "selectOrder" in createS1Result,
-      true,
-      "SelectOrder 1 creation should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    selectId1 = (createS1Result as { selectOrder: ID }).selectOrder;
+      // Create SelectOrders
+      const createS1Result = await purchaseSystem.createSelectOrder({
+        associateID: "select:TestItem1" as ID,
+      });
+      assertAndLog(
+        "selectOrder" in createS1Result,
+        true,
+        "SelectOrder 1 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      selectId1 = (createS1Result as { selectOrder: ID }).selectOrder;
 
-    const createS2Result = await purchaseSystem.createSelectOrder({
-      associateID: "select:TestItem2" as ID,
-    });
-    assertAndLog(
-      "selectOrder" in createS2Result,
-      true,
-      "SelectOrder 2 creation should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    selectId2 = (createS2Result as { selectOrder: ID }).selectOrder;
+      const createS2Result = await purchaseSystem.createSelectOrder({
+        associateID: "select:TestItem2" as ID,
+      });
+      assertAndLog(
+        "selectOrder" in createS2Result,
+        true,
+        "SelectOrder 2 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      selectId2 = (createS2Result as { selectOrder: ID }).selectOrder;
 
-    // Create AtomicOrders for selectId1
-    const createA1Result = await purchaseSystem.createAtomicOrder({
-      selectOrder: selectId1,
-      associateID: "atomic:Test1" as ID,
-      quantity: 1.0,
-      units: "unit",
-      price: 10.0,
-    });
-    assertAndLog(
-      "atomicOrder" in createA1Result,
-      true,
-      "AtomicOrder 1 creation should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    atomicId1 = (createA1Result as { atomicOrder: ID }).atomicOrder;
+      // Create AtomicOrders for selectId1
+      const createA1Result = await purchaseSystem.createAtomicOrder({
+        selectOrder: selectId1,
+        associateID: "atomic:Test1" as ID,
+        quantity: 1.0,
+        units: "unit",
+        price: 10.0,
+      });
+      assertAndLog(
+        "atomicOrder" in createA1Result,
+        true,
+        "AtomicOrder 1 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      atomicId1 = (createA1Result as { atomicOrder: ID }).atomicOrder;
 
-    const createA2Result = await purchaseSystem.createAtomicOrder({
-      selectOrder: selectId1,
-      associateID: "atomic:Test2" as ID,
-      quantity: 2.0,
-      units: "unit",
-      price: 18.0,
-    });
-    assertAndLog(
-      "atomicOrder" in createA2Result,
-      true,
-      "AtomicOrder 2 creation should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    atomicId2 = (createA2Result as { atomicOrder: ID }).atomicOrder;
+      const createA2Result = await purchaseSystem.createAtomicOrder({
+        selectOrder: selectId1,
+        associateID: "atomic:Test2" as ID,
+        quantity: 2.0,
+        units: "unit",
+        price: 18.0,
+      });
+      assertAndLog(
+        "atomicOrder" in createA2Result,
+        true,
+        "AtomicOrder 2 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      atomicId2 = (createA2Result as { atomicOrder: ID }).atomicOrder;
 
-    // Create CompositeOrder and add selectId1 to it
-    const createCompResult = await purchaseSystem.createCompositeOrder({
-      associateID: "comp:TestComposite" as ID,
-    });
-    assertAndLog(
-      "compositeOrder" in createCompResult,
-      true,
-      "CompositeOrder creation should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-    compositeId = (createCompResult as { compositeOrder: ID }).compositeOrder;
+      // Create CompositeOrder and add selectId1 to it
+      const createCompResult = await purchaseSystem.createCompositeOrder({
+        associateID: "comp:TestComposite" as ID,
+      });
+      assertAndLog(
+        "compositeOrder" in createCompResult,
+        true,
+        "CompositeOrder creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      compositeId = (createCompResult as { compositeOrder: ID }).compositeOrder;
 
-    const addSelectResult = await purchaseSystem.addSelectOrderToCompositeOrder({
-      compositeOrder: compositeId,
-      selectOrder: selectId1,
-      scaleFactor: 1.0,
-    });
-    assertAndLog(
-      "success" in addSelectResult,
-      true,
-      "Adding selectId1 to composite should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
+      const addSelectResult = await purchaseSystem
+        .addSelectOrderToCompositeOrder({
+          compositeOrder: compositeId,
+          selectOrder: selectId1,
+          scaleFactor: 1.0,
+        });
+      assertAndLog(
+        "success" in addSelectResult,
+        true,
+        "Adding selectId1 to composite should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
 
-  await t.step("2. Delete SelectOrder with no parents and no children", async () => {
-    const stepMessage = "2. Delete SelectOrder with no parents and no children";
-    printStepHeader(stepMessage);
+  await t.step(
+    "2. Delete SelectOrder with no parents and no children",
+    async () => {
+      const stepMessage =
+        "2. Delete SelectOrder with no parents and no children";
+      printStepHeader(stepMessage);
 
-    const deleteResult = await purchaseSystem.deleteSelectOrder({
-      selectOrder: selectId2,
-    });
-    assertAndLog(
-      "success" in deleteResult,
-      true,
-      "Deleting selectId2 should succeed",
-      stepMessage,
-      ++checkIndex,
-    );
+      const deleteResult = await purchaseSystem.deleteSelectOrder({
+        selectOrder: selectId2,
+      });
+      assertAndLog(
+        "success" in deleteResult,
+        true,
+        "Deleting selectId2 should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
 
-    // Verify selectId2 is deleted
-    const deletedSelect = await purchaseSystem.selectOrders.findOne({
-      _id: selectId2,
-    });
-    assertAndLog(
-      deletedSelect,
-      null,
-      "selectId2 should be deleted",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
+      // Verify selectId2 is deleted
+      const deletedSelect = await purchaseSystem.selectOrders.findOne({
+        _id: selectId2,
+      });
+      assertAndLog(
+        deletedSelect,
+        null,
+        "selectId2 should be deleted",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
 
   await t.step("3. Delete SelectOrder with child AtomicOrders", async () => {
     const stepMessage = "3. Delete SelectOrder with child AtomicOrders";
@@ -2119,28 +2128,32 @@ Deno.test("PurchaseSystemConcept - deleteSelectOrder", async (t) => {
     );
   });
 
-  await t.step("4. Verify SelectOrder is removed from parent CompositeOrder", async () => {
-    const stepMessage = "4. Verify SelectOrder is removed from parent CompositeOrder";
-    printStepHeader(stepMessage);
+  await t.step(
+    "4. Verify SelectOrder is removed from parent CompositeOrder",
+    async () => {
+      const stepMessage =
+        "4. Verify SelectOrder is removed from parent CompositeOrder";
+      printStepHeader(stepMessage);
 
-    // Verify composite order no longer has selectId1 in childSelectOrders
-    const compositeDoc = await purchaseSystem.compositeOrders.findOne({
-      _id: compositeId,
-    });
-    assertExistsAndLog(
-      compositeDoc,
-      "compositeDoc should exist",
-      stepMessage,
-      ++checkIndex,
-    );
-    assertAndLog(
-      selectId1 in compositeDoc!.childSelectOrders,
-      false,
-      "selectId1 should not be in composite's childSelectOrders",
-      stepMessage,
-      ++checkIndex,
-    );
-  });
+      // Verify composite order no longer has selectId1 in childSelectOrders
+      const compositeDoc = await purchaseSystem.compositeOrders.findOne({
+        _id: compositeId,
+      });
+      assertExistsAndLog(
+        compositeDoc,
+        "compositeDoc should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        selectId1 in compositeDoc!.childSelectOrders,
+        false,
+        "selectId1 should not be in composite's childSelectOrders",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
 
   await t.step("5. Verify calculateOptimalPurchase was called", async () => {
     const stepMessage = "5. Verify calculateOptimalPurchase was called";
@@ -2810,6 +2823,180 @@ Deno.test("PurchaseSystemConcept - Purchase Order Edge Cases", async (t) => {
       );
     },
   );
+
+  await client.close();
+});
+
+Deno.test("PurchaseSystemConcept - Fractional Quantities Round Up Correctly", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const purchaseSystem = new PurchaseSystemConcept(db);
+
+  let checkIndex = 0;
+  let recipeCompId: ID, menuCompId: ID, cartCompId: ID;
+  let broccoliSelectId: ID, broccoliAtomicId: ID;
+
+  await t.step("1. Setup recipe with fractional quantity", async () => {
+    const stepMessage = "1. Setup recipe with fractional quantity";
+    printStepHeader(stepMessage);
+
+    // Create recipe composite order
+    recipeCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "recipe:TestRecipe" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+
+    // Create select order for broccoli
+    broccoliSelectId = (await purchaseSystem.createSelectOrder({
+      associateID: "ing:Broccoli" as ID,
+    }) as { selectOrder: ID }).selectOrder;
+
+    // Create atomic order: 1 lb package at $2.29
+    broccoliAtomicId = (await purchaseSystem.createAtomicOrder({
+      selectOrder: broccoliSelectId,
+      associateID: "opt:Broccoli1lb" as ID,
+      quantity: 1.0,
+      units: "lb",
+      price: 2.29,
+    }) as { atomicOrder: ID }).atomicOrder;
+
+    // Recipe needs 6.5 lbs of broccoli
+    // This means scale factor = 6.5 (since baseQuantity will be 1.0 after first atomic order is added)
+    await purchaseSystem.addSelectOrderToCompositeOrder({
+      compositeOrder: recipeCompId,
+      selectOrder: broccoliSelectId,
+      scaleFactor: 6.5,
+    });
+  });
+
+  await t.step("2. Calculate optimal purchase for recipe", async () => {
+    const stepMessage = "2. Calculate optimal purchase for recipe";
+    printStepHeader(stepMessage);
+
+    const calculateResult = await purchaseSystem.calculateOptimalPurchase({
+      compositeOrders: [recipeCompId],
+    });
+    assertAndLog(
+      "error" in calculateResult,
+      false,
+      "Calculate optimal purchase should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify cost: need 6.5 lbs, package size 1 lb
+    // Packages needed = Math.ceil(6.5 / 1) = 7 packages
+    // Cost = 7 × $2.29 = $16.03 (NOT 6.5 × $2.29 = $14.89)
+    const recipeCostResult = await purchaseSystem._getOrderCost({
+      compositeOrder: recipeCompId,
+    });
+    assertAndLog(
+      "error" in recipeCostResult,
+      false,
+      "Query recipe cost should not return an error",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertFloatEquals(
+      (recipeCostResult as { totalCost: number }[])[0].totalCost,
+      16.03,
+      "Recipe cost should be 16.03 (7 packages × $2.29)",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Verify package count in optimal purchase
+    const optimalResult = await purchaseSystem._getOptimalPurchase({
+      compositeOrder: recipeCompId,
+    });
+    const optimalPurchase =
+      (optimalResult as { optimalPurchase: Record<ID, number> }[])[0]
+        ?.optimalPurchase;
+    assertAndLog(
+      optimalPurchase?.[broccoliAtomicId],
+      7,
+      "Should buy 7 packages (not 6.5)",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("3. Create menu with recipe and verify cost", async () => {
+    const stepMessage = "3. Create menu with recipe and verify cost";
+    printStepHeader(stepMessage);
+
+    menuCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "menu:TestMenu" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+
+    // Menu contains recipe with scale 1.0
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: menuCompId,
+      childOrder: recipeCompId,
+      scaleFactor: 1.0,
+    });
+
+    const calculateResult = await purchaseSystem.calculateOptimalPurchase({
+      compositeOrders: [menuCompId],
+    });
+    assertAndLog(
+      "error" in calculateResult,
+      false,
+      "Calculate optimal purchase should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Menu cost should match recipe cost (scale 1.0)
+    const menuCostResult = await purchaseSystem._getOrderCost({
+      compositeOrder: menuCompId,
+    });
+    assertFloatEquals(
+      (menuCostResult as { totalCost: number }[])[0].totalCost,
+      16.03,
+      "Menu cost should be 16.03",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("4. Create cart with menu and verify cost", async () => {
+    const stepMessage = "4. Create cart with menu and verify cost";
+    printStepHeader(stepMessage);
+
+    cartCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "cart:TestCart" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+
+    // Cart contains menu with scale 1.0
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: cartCompId,
+      childOrder: menuCompId,
+      scaleFactor: 1.0,
+    });
+
+    const calculateResult = await purchaseSystem.calculateOptimalPurchase({
+      compositeOrders: [cartCompId],
+    });
+    assertAndLog(
+      "error" in calculateResult,
+      false,
+      "Calculate optimal purchase should succeed",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    // Cart cost should match menu cost (scale 1.0)
+    const cartCostResult = await purchaseSystem._getOrderCost({
+      compositeOrder: cartCompId,
+    });
+    assertFloatEquals(
+      (cartCostResult as { totalCost: number }[])[0].totalCost,
+      16.03,
+      "Cart cost should be 16.03 (correctly calculated from fractional quantity)",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
 
   await client.close();
 });

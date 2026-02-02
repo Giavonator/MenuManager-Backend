@@ -104,13 +104,15 @@ Deno.test("WeeklyCart page bundle sync returns full payload", async (t) => {
       menuName: string | null;
       ownerId: string | null;
       ownerName: string | null;
-      recipes: Array<{ recipeId: string; name: string }>;
+      recipes: Array<{ recipeId: string; name: string; scalingFactor: number }>;
     }>;
     assertEquals(menus.length, 1);
     assertEquals(menus[0].recipes.length, 1);
     assertEquals(menus[0].menuName, "Weekly Menu");
     assertEquals(menus[0].ownerId, actingUser);
-    assert(menus[0].ownerName === null || typeof menus[0].ownerName === "string");
+    assert(
+      menus[0].ownerName === null || typeof menus[0].ownerName === "string",
+    );
     assert(menus[0].recipes[0].name);
 
     const aggregated = bundle.aggregatedIngredients as Array<{
@@ -143,7 +145,9 @@ Deno.test("WeeklyCart page bundle sync returns full payload", async (t) => {
     assertEquals(bundle.week, null);
     assertEquals((bundle.menus as unknown[]).length, 0);
     assertEquals((bundle.aggregatedIngredients as unknown[]).length, 0);
-    const optimalPurchase = bundle.optimalPurchase as { atomicOrders: unknown[] };
+    const optimalPurchase = bundle.optimalPurchase as {
+      atomicOrders: unknown[];
+    };
     assertEquals(optimalPurchase.atomicOrders.length, 0);
   });
 

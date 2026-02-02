@@ -1375,14 +1375,14 @@ export default class PurchaseSystemConcept {
 
         const baseSelectOrderOptimalChoices = new Map<
           SelectOrder,
-          { 
-            atomicId: AtomicOrder; 
-            quantity: number;  // number of atomic units to buy for base (keep for backward compatibility)
-            cost: number;      // cost for baseQuantity
-            baseQuantity: number;  // the base quantity needed (e.g., 0.3 lbs)
-            atomicPackageSize: number;  // quantity per atomic package (e.g., 1 lb)
-            atomicPrice: number;  // price per atomic package
-            baseUnits: string;  // units for baseQuantity (e.g., "lbs")
+          {
+            atomicId: AtomicOrder;
+            quantity: number; // number of atomic units to buy for base (keep for backward compatibility)
+            cost: number; // cost for baseQuantity
+            baseQuantity: number; // the base quantity needed (e.g., 0.3 lbs)
+            atomicPackageSize: number; // quantity per atomic package (e.g., 1 lb)
+            atomicPrice: number; // price per atomic package
+            baseUnits: string; // units for baseQuantity (e.g., "lbs")
           }
         >();
 
@@ -1458,10 +1458,10 @@ export default class PurchaseSystemConcept {
 
         const calculatedIntermediateResults = new Map<
           CompositeOrder,
-          { 
-            cost: number; 
-            optimal: Record<AtomicOrder, number>;  // packages bought
-            quantitiesNeeded: Record<AtomicOrder, number>;  // quantities actually needed
+          {
+            cost: number;
+            optimal: Record<AtomicOrder, number>; // packages bought
+            quantitiesNeeded: Record<AtomicOrder, number>; // quantities actually needed
           }
         >();
 
@@ -1474,7 +1474,7 @@ export default class PurchaseSystemConcept {
           let currentCompositeTotalCost = 0;
           const currentCompositeOptimalPurchase: Record<AtomicOrder, number> =
             {};
-          const quantitiesNeededMap: Record<AtomicOrder, number> = {};  // Track quantities actually needed
+          const quantitiesNeededMap: Record<AtomicOrder, number> = {}; // Track quantities actually needed
 
           // Add contributions from direct child SelectOrders (scaled by currentComposite's scale factors)
           for (const selectID in currentComposite.childSelectOrders) {
@@ -1487,14 +1487,16 @@ export default class PurchaseSystemConcept {
             if (baseOptimal) {
               const atomicID = baseOptimal.atomicId;
               // Scale the base quantity needed
-              const scaledQuantityNeeded = baseOptimal.baseQuantity * selectScale;
+              const scaledQuantityNeeded = baseOptimal.baseQuantity *
+                selectScale;
               // Recalculate how many atomic units to buy for the scaled quantity
               // Quantities in optimalPurchase are specified as Ints. Apply Math.ceil after scaling.
               const atomicQuantityToBuy = Math.ceil(
                 scaledQuantityNeeded / baseOptimal.atomicPackageSize,
               );
               // Recalculate cost based on actual units to buy
-              const costContribution = atomicQuantityToBuy * baseOptimal.atomicPrice;
+              const costContribution = atomicQuantityToBuy *
+                baseOptimal.atomicPrice;
 
               currentCompositeTotalCost += costContribution;
               // Track packages bought (existing)
@@ -1533,7 +1535,9 @@ export default class PurchaseSystemConcept {
             // Accumulate scaled quantities needed from this child composite
             for (const atomicID in childResults.optimal) {
               // Get or cache atomic order document
-              let atomicOrderDoc = atomicOrderDocsCache.get(atomicID as AtomicOrder);
+              let atomicOrderDoc = atomicOrderDocsCache.get(
+                atomicID as AtomicOrder,
+              );
               if (!atomicOrderDoc) {
                 const foundDoc = await this.atomicOrders.findOne({
                   _id: atomicID as AtomicOrder,
@@ -1542,16 +1546,23 @@ export default class PurchaseSystemConcept {
                   continue;
                 }
                 atomicOrderDoc = foundDoc;
-                atomicOrderDocsCache.set(atomicID as AtomicOrder, atomicOrderDoc);
+                atomicOrderDocsCache.set(
+                  atomicID as AtomicOrder,
+                  atomicOrderDoc,
+                );
               }
 
               // Get the quantity actually needed from the child composite
-              let childQuantityNeeded = childResults.quantitiesNeeded?.[atomicID as AtomicOrder] ?? 0;
+              let childQuantityNeeded =
+                childResults.quantitiesNeeded?.[atomicID as AtomicOrder] ?? 0;
 
-              // Fallback: calculate from packages if quantitiesNeeded not available
+              // If quantitiesNeeded is missing, this indicates a data consistency issue
+              // Skip this atomic order rather than using an inaccurate fallback
               if (childQuantityNeeded === 0) {
-                const childAtomicPackages = childResults.optimal[atomicID as AtomicOrder];
-                childQuantityNeeded = childAtomicPackages * atomicOrderDoc.quantity;
+                console.error(
+                  `[OptimalPurchase] WARNING: quantitiesNeeded missing for atomicOrder '${atomicID}' in child composite '${childCompID}'. This may indicate a calculation error. Skipping this atomic order.`,
+                );
+                continue; // Skip this atomic order
               }
 
               // Scale the quantity needed
@@ -1560,14 +1571,19 @@ export default class PurchaseSystemConcept {
               // Accumulate the scaled quantity (don't calculate packages yet)
               aggregatedQuantitiesNeeded.set(
                 atomicID as AtomicOrder,
-                (aggregatedQuantitiesNeeded.get(atomicID as AtomicOrder) || 0) + scaledQuantityNeeded,
+                (aggregatedQuantitiesNeeded.get(atomicID as AtomicOrder) || 0) +
+                  scaledQuantityNeeded,
               );
             }
           }
 
           // Phase 2: Calculate packages and costs from aggregated quantities
-          for (const [atomicID, totalQuantityNeeded] of aggregatedQuantitiesNeeded) {
-            const atomicOrderDoc = atomicOrderDocsCache.get(atomicID as AtomicOrder);
+          for (
+            const [atomicID, totalQuantityNeeded] of aggregatedQuantitiesNeeded
+          ) {
+            const atomicOrderDoc = atomicOrderDocsCache.get(
+              atomicID as AtomicOrder,
+            );
             if (!atomicOrderDoc) {
               continue;
             }
@@ -1587,7 +1603,8 @@ export default class PurchaseSystemConcept {
 
             // Track total quantity needed for this composite
             quantitiesNeededMap[atomicID as AtomicOrder] =
-              (quantitiesNeededMap[atomicID as AtomicOrder] || 0) + totalQuantityNeeded;
+              (quantitiesNeededMap[atomicID as AtomicOrder] || 0) +
+              totalQuantityNeeded;
 
             // Add to total cost
             currentCompositeTotalCost += totalCost;
@@ -1597,7 +1614,7 @@ export default class PurchaseSystemConcept {
           calculatedIntermediateResults.set(currentCompositeID, {
             cost: currentCompositeTotalCost,
             optimal: currentCompositeOptimalPurchase,
-            quantitiesNeeded: quantitiesNeededMap,  // Store quantities actually needed
+            quantitiesNeeded: quantitiesNeededMap, // Store quantities actually needed
           });
 
           // Update MongoDB for this composite order

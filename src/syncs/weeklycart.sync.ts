@@ -1185,6 +1185,7 @@ export const WeeklyCartPageBundleRequest: Sync = ({
         recipes: Array<{
           recipeId: string;
           name: string;
+          scalingFactor: number;
           ingredients: Array<{
             name: string;
             quantity: number;
@@ -1244,6 +1245,7 @@ export const WeeklyCartPageBundleRequest: Sync = ({
         const recipesPayload: Array<{
           recipeId: string;
           name: string;
+          scalingFactor: number;
           ingredients: Array<{
             name: string;
             quantity: number;
@@ -1291,6 +1293,7 @@ export const WeeklyCartPageBundleRequest: Sync = ({
           recipesPayload.push({
             recipeId,
             name: recipeName,
+            scalingFactor: scalingFactor,
             ingredients: ingredients.map((ing) => ({
               name: ing.name,
               quantity: ing.quantity,
