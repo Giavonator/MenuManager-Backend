@@ -1,6 +1,7 @@
 import { Collection, Db } from "npm:mongodb";
 import { Empty, ID, Result } from "@utils/types.ts";
 import { freshID } from "@utils/database.ts";
+import { isSupportedUnit } from "@utils/instacart_units.ts";
 
 // Declare collection prefix, use concept name
 const PREFIX = "CookBook" + ".";
@@ -331,6 +332,12 @@ export default class CookBookConcept {
     if (!units || units.trim() === "") {
       return { error: "Units cannot be empty." };
     }
+    if (!isSupportedUnit(units.trim())) {
+      return {
+        error:
+          "Units must be a supported unit (volume: tsp/tbsp/cup/fl oz/pt/qt/gal/ml/l; weight: oz/lb/g/kg; count: each/dozen/package/bag/box/can/bottle).",
+      };
+    }
 
     try {
       const existingRecipe = await this.recipes.findOne({ _id: recipe });
@@ -395,6 +402,12 @@ export default class CookBookConcept {
     }
     if (!units || units.trim() === "") {
       return { error: "Units cannot be empty." };
+    }
+    if (!isSupportedUnit(units.trim())) {
+      return {
+        error:
+          "Units must be a supported unit (volume: tsp/tbsp/cup/fl oz/pt/qt/gal/ml/l; weight: oz/lb/g/kg; count: each/dozen/package/bag/box/can/bottle).",
+      };
     }
 
     try {

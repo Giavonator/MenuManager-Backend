@@ -8,6 +8,7 @@ import {
   UserAuthentication,
   WeeklyCart,
 } from "@concepts";
+import { convertWithinCategory } from "@utils/instacart_units.ts";
 import { ID } from "@utils/types.ts";
 
 // ============================================================================
@@ -673,38 +674,18 @@ export const AddSelectOrderToCompositeOrderOnIngredientAdd: Sync = ({
                 continue;
               }
 
-              // Convert recipe quantity to baseUnits if units differ
-              let convertedRecipeQuantity = recipeQuantity;
-              if (recipeUnits !== baseUnitsValue) {
-                // For common conversions:
-                const recipeUnitsLower = recipeUnits.toLowerCase();
-                const baseUnitsLower = baseUnitsValue.toLowerCase();
-                if (
-                  (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
-                  (baseUnitsLower === "lb" || baseUnitsLower === "lbs")
-                ) {
-                  // Same unit, different spelling
-                  convertedRecipeQuantity = recipeQuantity;
-                } else if (
-                  recipeUnitsLower === "oz" && baseUnitsLower === "oz"
-                ) {
-                  convertedRecipeQuantity = recipeQuantity;
-                } else if (
-                  recipeUnitsLower === "oz" && baseUnitsLower === "lbs"
-                ) {
-                  // Convert oz to lbs: 1 lb = 16 oz
-                  convertedRecipeQuantity = recipeQuantity / 16;
-                } else if (
-                  (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
-                  baseUnitsLower === "oz"
-                ) {
-                  // Convert lbs to oz: 1 lb = 16 oz
-                  convertedRecipeQuantity = recipeQuantity * 16;
-                } else {
-                  // For other cases, assume numeric conversion (units match)
-                  convertedRecipeQuantity = recipeQuantity;
-                }
-              } else {
+              // Convert recipe quantity to baseUnits within the same category.
+              // If conversion is not possible (e.g., cross-category), skip.
+              const convertedRecipeQuantity = convertWithinCategory(
+                recipeQuantity,
+                recipeUnits,
+                baseUnitsValue,
+              );
+              if (
+                convertedRecipeQuantity === null ||
+                !Number.isFinite(convertedRecipeQuantity)
+              ) {
+                continue;
               }
 
               // Calculate scale factor: recipeQuantity / baseQuantity
@@ -1094,38 +1075,18 @@ export const UpdateSubOrderScaleFactorOnIngredientUpdate: Sync = ({
                 continue;
               }
 
-              // Convert recipe quantity to baseUnits if units differ
-              let convertedRecipeQuantity = recipeQuantity;
-              if (recipeUnits !== baseUnitsValue) {
-                // For common conversions:
-                const recipeUnitsLower = recipeUnits.toLowerCase();
-                const baseUnitsLower = baseUnitsValue.toLowerCase();
-                if (
-                  (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
-                  (baseUnitsLower === "lb" || baseUnitsLower === "lbs")
-                ) {
-                  // Same unit, different spelling
-                  convertedRecipeQuantity = recipeQuantity;
-                } else if (
-                  recipeUnitsLower === "oz" && baseUnitsLower === "oz"
-                ) {
-                  convertedRecipeQuantity = recipeQuantity;
-                } else if (
-                  recipeUnitsLower === "oz" && baseUnitsLower === "lbs"
-                ) {
-                  // Convert oz to lbs: 1 lb = 16 oz
-                  convertedRecipeQuantity = recipeQuantity / 16;
-                } else if (
-                  (recipeUnitsLower === "lb" || recipeUnitsLower === "lbs") &&
-                  baseUnitsLower === "oz"
-                ) {
-                  // Convert lbs to oz: 1 lb = 16 oz
-                  convertedRecipeQuantity = recipeQuantity * 16;
-                } else {
-                  // For other cases, assume numeric conversion (units match)
-                  convertedRecipeQuantity = recipeQuantity;
-                }
-              } else {
+              // Convert recipe quantity to baseUnits within the same category.
+              // If conversion is not possible (e.g., cross-category), skip.
+              const convertedRecipeQuantity = convertWithinCategory(
+                recipeQuantity,
+                recipeUnits,
+                baseUnitsValue,
+              );
+              if (
+                convertedRecipeQuantity === null ||
+                !Number.isFinite(convertedRecipeQuantity)
+              ) {
+                continue;
               }
 
               // Calculate scale factor: recipeQuantity / baseQuantity

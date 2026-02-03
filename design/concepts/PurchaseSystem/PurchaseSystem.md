@@ -10,15 +10,15 @@
 **state**\
   a set of AtomicOrder with\
     an associateID ID // Associate Order to external globally unique ID\
-    a quantity Float // Ex. 3.0\
-    a units String // Ex. "lbs", "oz", "count"\
+    a quantity Float // Ex. 3.0\
+    a units String // Ex. "lbs", "oz", "each" — must be one of the supported units below\
     a price Float // Ex. 5.99 (cost for this specific quantity)\
     a parentOrder SelectOrder
 
   a set of SelectOrder with\
     an associateID ID // Associate Order to external globally unique ID\
-    a baseQuantity Float // Ex. 1.0, (-1 if no childAtomicOrders yet, if so ignore it during calculations)\
-    a baseUnits String // Ex. "lbs", internal unit conversion table if AtomicOrder has different units\
+    a baseQuantity Float // Ex. 1.0, (-1 if no childAtomicOrders yet, if so ignore it during calculations)\
+    a baseUnits String // Ex. "lbs", the unit used as the base for all cost calculations for this SelectOrder\
     a childAtomicOrders Set of AtomicOrder // AtomicOrder options available for *this* SelectOrder.\
     a parentOrders Set of CompositeOrder\
 
@@ -31,6 +31,27 @@
     a parentOrder CompositeOrder\
     a rootOrder CompositeOrder\
     a purchased Bool
+
+Unit categories and supported units
+-----------------------------------
+
+PurchaseSystem treats all units as belonging to exactly one of three categories:
+
+- Volume units: tsp, tbsp, cup, fl oz, pt, qt, gal, ml, l
+- Weight units: oz, lb, g, kg
+- Count units: each, dozen, package, bag, box, can, bottle
+
+Each SelectOrder’s baseUnits (and each AtomicOrder’s units) must be one of these supported units. An ingredient is effectively assigned to the category of its optimal purchase option; conversions are only ever performed **within** a category and are not allowed across categories.
+
+Cost calculation semantics
+--------------------------
+
+When calculating costs, PurchaseSystem:
+
+- Interprets each AtomicOrder’s `quantity` as being in its `units` field.
+- For any required quantity coming from recipes or higher-level concepts, first converts that required quantity into the `units` of the chosen AtomicOrder (within the same category).
+- Computes how many AtomicOrders are needed using `Math.ceil(requiredQuantityInAtomicUnits / atomicOrder.quantity)`. This enforces that you can never buy a fraction of a purchase option.
+- Aggregates these integer counts to compute total cost for each CompositeOrder.
 
 **actions**\
 

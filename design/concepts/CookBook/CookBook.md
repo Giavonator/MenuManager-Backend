@@ -16,8 +16,19 @@
     an owner User\
     an ingredients set of Ingredient with\
       a name String\
-      a quantity Float\
-      a units String
+      a quantity Float\
+      a units String // Must be a supported unit in the ingredient’s category (see below)
+
+Unit categories and supported units
+-----------------------------------
+
+CookBook uses the same three unit categories as PurchaseSystem:
+
+- Volume units: tsp, tbsp, cup, fl oz, pt, qt, gal, ml, l
+- Weight units: oz, lb, g, kg
+- Count units: each, dozen, package, bag, box, can, bottle
+
+Each ingredient is associated (via its purchase options in StoreCatalog/PurchaseSystem) with exactly one category. When adding or updating a recipe ingredient, `units` must be one of the supported units in that ingredient’s category. Conversions between units are always allowed within a category and never across categories; cost calculations will convert recipe quantities to the base units used by the relevant purchase options.
 
 **actions**\
   createRecipe (name: String, user: User): (recipe: Recipe)\
@@ -36,11 +47,11 @@
     **effects** Creates a new `Recipe` that is a copy of `originalRecipe` (name, instructions, servingQuantity, dishType, and all ingredients including their names, quantities, and units). Sets `newRecipe.owner` to `user` and `newRecipe.name` to `newName`. Returns the `newRecipe` ID.
 
   addRecipeIngredient (recipe: Recipe, name: String, quantity: Float, units: String)\
-    **requires** `recipe` exists. `name` is not an existing ingredient in recipe. `quantity` > 0. `units` is not empty.\
+    **requires** `recipe` exists. `name` is not an existing ingredient in recipe. `quantity` > 0. `units` is not empty and is a supported unit within the ingredient’s category.\
     **effects** New `Ingredient` with the given `name`, `quantity`, and `units` is added to `recipe.ingredients`.
 
   updateRecipeIngredient (recipe: Recipe, name: String, quantity: Float, units: String)\
-    **requires** `recipe` exists. `recipe.ingredients` contaings ingredient with `name`. `quantity` > 0. `units` is not empty.\
+    **requires** `recipe` exists. `recipe.ingredients` contaings ingredient with `name`. `quantity` > 0. `units` is not empty and is a supported unit within the ingredient’s category.\
     **effects** Ingredient with `name` in `recipe.ingredients` has parameters `quantity` and `units` updated.
 
   removeRecipeIngredient (recipe: Recipe, name: String)\

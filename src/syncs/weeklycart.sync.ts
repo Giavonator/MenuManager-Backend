@@ -8,6 +8,7 @@ import {
   UserAuthentication,
   WeeklyCart,
 } from "@concepts";
+import { convertWithinCategory } from "@utils/instacart_units.ts";
 import { ID } from "@utils/types.ts";
 
 const toDateOnlyString = (date: Date): string =>
@@ -1317,15 +1318,16 @@ export const WeeklyCartPageBundleRequest: Sync = ({
           for (const ingredient of ingredients) {
             const name = ingredient.name.trim();
             const units = ingredient.units;
+            const baseUnits = ingredient.units; // Placeholder; will be normalized later if needed
             const totalQuantity = ingredient.quantity * scalingFactor;
-            const key = `${name}||${units}`;
+            const key = `${name}||${baseUnits}`;
             const existing = aggregateMap.get(key);
             if (existing) {
               existing.totalQuantity += totalQuantity;
             } else {
               aggregateMap.set(key, {
                 name,
-                units,
+                units: baseUnits,
                 totalQuantity,
               });
             }
@@ -1411,6 +1413,8 @@ export const WeeklyCartPageBundleRequest: Sync = ({
         };
       }> = [];
 
+      const nameToItemId = new Map<string, string>();
+
       for (const ingredient of aggregatedList) {
         const itemResult = await StoreCatalog._getItemByName({
           name: ingredient.name,
@@ -1424,6 +1428,7 @@ export const WeeklyCartPageBundleRequest: Sync = ({
         }
 
         const itemIdValue = itemResult[0].item as ID;
+        nameToItemId.set(ingredient.name, itemIdValue);
         const itemPurchaseOptionsResult = await StoreCatalog
           ._getItemPurchaseOptions({
             item: itemIdValue,
@@ -1573,6 +1578,105 @@ export const WeeklyCartPageBundleRequest: Sync = ({
         a.atomicOrderId.localeCompare(b.atomicOrderId)
       );
 
+      // Normalize aggregated ingredient quantities and units to the units of the
+      // chosen optimal purchase option for that item (when available) so the
+      // frontend does not need to do conversions.
+      const baseUnitByItemId = new Map<string, string>();
+      for (const entry of optimalPurchaseAtomicOrders) {
+        if (entry.itemId && entry.units) {
+          baseUnitByItemId.set(entry.itemId, entry.units);
+        }
+      }
+
+      const normalizedAggregatedMap = new Map<string, {
+        name: string;
+        totalQuantity: number;
+        units: string;
+        catalogItem: null | {
+          itemId: string;
+          purchaseOptions: Array<{
+            purchaseOptionId: string;
+            quantity: number;
+            units: string;
+            price: number;
+            store: string;
+            confirmed: boolean;
+            atomicOrderId: string | null;
+            atomicOrder: null | {
+              quantity: number;
+              units: string;
+              price: number;
+            };
+          }>;
+        };
+      }>();
+
+      for (const entry of aggregatedPayload) {
+        const itemIdValue = entry.catalogItem?.itemId ?? null;
+        const baseUnit = itemIdValue ? baseUnitByItemId.get(itemIdValue) : null;
+
+        let targetUnits = entry.units;
+        let targetQuantity = entry.totalQuantity;
+
+        if (baseUnit && baseUnit !== entry.units) {
+          const converted = convertWithinCategory(
+            entry.totalQuantity,
+            entry.units,
+            baseUnit,
+          );
+          if (converted !== null && Number.isFinite(converted)) {
+            targetUnits = baseUnit;
+            targetQuantity = converted;
+          }
+        }
+
+        const key = `${entry.name}||${targetUnits}`;
+        const existing = normalizedAggregatedMap.get(key);
+        if (existing) {
+          existing.totalQuantity += targetQuantity;
+        } else {
+          normalizedAggregatedMap.set(key, {
+            name: entry.name,
+            totalQuantity: targetQuantity,
+            units: targetUnits,
+            catalogItem: entry.catalogItem,
+          });
+        }
+      }
+
+      const normalizedAggregatedList = Array.from(
+        normalizedAggregatedMap.values(),
+      )
+        .sort((a, b) =>
+          a.name === b.name
+            ? a.units.localeCompare(b.units)
+            : a.name.localeCompare(b.name)
+        );
+
+      // Normalize recipe ingredient units in menusPayload to the same base units,
+      // so frontend consumers of menus[*].recipes[*].ingredients[*] see
+      // purchase-option units rather than raw recipe units.
+      for (const menu of menusPayload) {
+        for (const recipe of menu.recipes) {
+          for (const ingredient of recipe.ingredients) {
+            const itemIdValue = nameToItemId.get(ingredient.name);
+            if (!itemIdValue) continue;
+            const baseUnit = baseUnitByItemId.get(itemIdValue);
+            if (!baseUnit || baseUnit === ingredient.units) continue;
+
+            const converted = convertWithinCategory(
+              ingredient.quantity,
+              ingredient.units,
+              baseUnit,
+            );
+            if (converted !== null && Number.isFinite(converted)) {
+              ingredient.quantity = converted;
+              ingredient.units = baseUnit;
+            }
+          }
+        }
+      }
+
       resultFrames.push({
         ...frame,
         [cart]: cartCompositeOrderId
@@ -1580,7 +1684,7 @@ export const WeeklyCartPageBundleRequest: Sync = ({
           : { id: cartIdValue, compositeOrderId: null },
         [week]: { start: cartWeekStart, end: cartWeekEnd },
         [menus]: menusPayload,
-        [aggregatedIngredients]: aggregatedPayload,
+        [aggregatedIngredients]: normalizedAggregatedList,
         [optimalPurchase]: { atomicOrders: optimalPurchaseAtomicOrders },
       });
     }
