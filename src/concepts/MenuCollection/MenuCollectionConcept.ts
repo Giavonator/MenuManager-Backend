@@ -180,7 +180,7 @@ export default class MenuCollectionConcept {
 
       const updateFields: Partial<MenuDoc> = {};
 
-      if (name !== undefined) {
+      if (name !== undefined && name !== null) {
         // Precondition: `name` is not empty
         if (!name || name.trim() === "") {
           return { error: "Menu name cannot be empty." };
@@ -188,7 +188,7 @@ export default class MenuCollectionConcept {
         updateFields.name = name.trim();
       }
 
-      if (date !== undefined) {
+      if (date !== undefined && date !== null) {
         // Parse date if it's a string (from JSON)
         const parsedDate = typeof date === "string" ? new Date(date) : date;
         if (isNaN(parsedDate.getTime())) {

@@ -1765,6 +1765,7 @@ export const AddCompositeSubOrderOnCartAddMenuExistingCart: Sync = ({
 });
 
 // removeCompositeSubOrder when WeeklyCart.removeMenuFromCart
+// This sync handles manual removals. For date changes, MoveCompositeSubOrderOnCartAddMenu handles the move atomically.
 export const RemoveCompositeSubOrderOnCartRemoveMenu: Sync = ({
   menu,
   cart,
@@ -1775,6 +1776,8 @@ export const RemoveCompositeSubOrderOnCartRemoveMenu: Sync = ({
   when: actions([WeeklyCart.removeMenuFromCart, { menu }, { cart }]),
   where: async (frames) => {
     // Find CompositeOrder for cart and menu
+    // NOTE: This sync handles manual removals. For date changes, MoveCompositeSubOrderOnCartAddMenu
+    // handles the move atomically when the menu is added to the new cart.
     const resultFrames = new Frames();
     for (const frame of frames) {
       // Find cart CompositeOrder
@@ -1863,6 +1866,110 @@ export const RemoveCompositeSubOrderOnCartRemoveMenu: Sync = ({
     {
       parentOrder: cartCompositeOrder,
       childOrder: menuCompositeOrder,
+    },
+  ]),
+});
+
+// moveCompositeSubOrder when WeeklyCart.addMenuToCart (when both orders already exist)
+// This sync handles all scenarios where a menu is added to a cart and both composite orders exist:
+// - Date changes: moves menu composite order from old cart to new cart atomically
+// - Manual adds: adds menu composite order to cart (if no parent) or moves it (if different parent)
+// The moveCompositeSubOrder action is idempotent, so it safely handles all cases:
+// - If menu composite order has no parent: adds to new cart
+// - If menu composite order has same parent: no-op
+// - If menu composite order has different parent: moves atomically (removes from old, adds to new)
+export const MoveCompositeSubOrderOnCartAddMenu: Sync = ({
+  menu,
+  cart,
+  menuCompositeOrder,
+  newCartCompositeOrder,
+}) => ({
+  when: actions(
+    [WeeklyCart.addMenuToCart, { menu }, { cart }],
+  ),
+  where: async (frames) => {
+    const resultFrames = new Frames();
+    for (const frame of frames) {
+      const frameRecord = frame as Record<symbol, unknown>;
+      const menuValue = frameRecord[menu] as string;
+      const cartValue = frameRecord[cart] as string;
+
+      if (!menuValue || typeof menuValue !== "string") {
+        continue;
+      }
+      if (!cartValue || typeof cartValue !== "string") {
+        continue;
+      }
+
+      // Find menu composite order
+      const menuOrderResult = await PurchaseSystem._getOrderByAssociateID({
+        associateID: menuValue as ID,
+      });
+
+      if (!Array.isArray(menuOrderResult) || menuOrderResult.length === 0) {
+        continue; // Menu composite order doesn't exist yet - other syncs will handle it
+      }
+
+      let menuOrderId: string | undefined;
+      for (const orderResult of menuOrderResult) {
+        const orderValue = orderResult.order;
+        if (
+          orderValue &&
+          typeof orderValue === "object" &&
+          "childSelectOrders" in orderValue
+        ) {
+          menuOrderId = (orderValue as unknown as { _id: string })._id;
+          break;
+        }
+      }
+
+      if (!menuOrderId) {
+        continue;
+      }
+
+      // Find new cart composite order
+      const newCartOrderResult = await PurchaseSystem._getOrderByAssociateID({
+        associateID: cartValue as ID,
+      });
+
+      if (
+        !Array.isArray(newCartOrderResult) || newCartOrderResult.length === 0
+      ) {
+        continue; // New cart composite order doesn't exist yet - other syncs will handle it
+      }
+
+      let newCartOrderId: string | undefined;
+      for (const orderResult of newCartOrderResult) {
+        const orderValue = orderResult.order;
+        if (
+          orderValue &&
+          typeof orderValue === "object" &&
+          "childSelectOrders" in orderValue
+        ) {
+          newCartOrderId = (orderValue as unknown as { _id: string })._id;
+          break;
+        }
+      }
+
+      if (!newCartOrderId) {
+        continue;
+      }
+
+      resultFrames.push({
+        ...frame,
+        [menuCompositeOrder]: menuOrderId,
+        [newCartCompositeOrder]: newCartOrderId,
+      });
+    }
+
+    return resultFrames;
+  },
+  then: actions([
+    PurchaseSystem.moveCompositeSubOrder,
+    {
+      childOrder: menuCompositeOrder,
+      newParentOrder: newCartCompositeOrder,
+      scaleFactor: 1.0,
     },
   ]),
 });

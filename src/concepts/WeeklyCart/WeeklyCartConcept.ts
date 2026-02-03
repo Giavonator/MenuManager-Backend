@@ -72,6 +72,9 @@ type AddMenuToCartOutput = Result<{ cart: Cart }>; // Returns the ID of the cart
 type RemoveMenuFromCartInput = { menu: Menu };
 type RemoveMenuFromCartOutput = Result<{ cart: Cart }>; // Returns the ID of the cart the menu was removed from
 
+type MoveMenuToCartInput = { menu: Menu; menuDate: Date };
+type MoveMenuToCartOutput = Result<{ oldCart?: Cart; newCart: Cart }>;
+
 // --- Query Input/Output Types ---
 
 type GetCartDatesInput = { cart: Cart };
@@ -292,6 +295,79 @@ export default class WeeklyCartConcept {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Error removing menu from cart: ${errorMessage}`);
       return { error: `Failed to remove menu from cart: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * moveMenuToCart (menu: Menu, menuDate: Date): (oldCart?: Cart, newCart: Cart)
+   *
+   * **requires** `menu` exists. A `cart` exists whose `startDate` and `endDate` range *contains* `menuDate`.
+   *
+   * **effects**
+   * - If `menu` is in a different cart, removes it from that cart
+   * - Adds `menu` to the cart for `menuDate` (or does nothing if already in correct cart)
+   * - Returns the old cart (if removed) and new cart
+   * - This action is idempotent: if menu is already in the correct cart, it's a no-op
+   */
+  async moveMenuToCart(
+    { menu, menuDate }: MoveMenuToCartInput,
+  ): Promise<MoveMenuToCartOutput> {
+    try {
+      // Normalize menuDate to start of day UTC
+      const normalizedMenuDate = new Date(menuDate);
+      normalizedMenuDate.setUTCHours(0, 0, 0, 0);
+
+      // Find new cart for menuDate
+      const newCart = await this.carts.findOne({
+        startDate: { $lte: normalizedMenuDate },
+        endDate: { $gte: normalizedMenuDate },
+      });
+
+      if (!newCart) {
+        return {
+          error: `No cart found for the week containing ${
+            menuDate.toISOString().split("T")[0]
+          }`,
+        };
+      }
+
+      // Find old cart containing menu (if any)
+      const oldCart = await this.carts.findOne({ menus: menu });
+
+      // If menu is already in the correct cart, return success (idempotent)
+      if (oldCart && oldCart._id === newCart._id) {
+        return {
+          oldCart: undefined,
+          newCart: newCart._id,
+        };
+      }
+
+      // If old cart exists and is different from new cart, remove from old cart
+      if (oldCart && oldCart._id !== newCart._id) {
+        await this.carts.updateOne(
+          { _id: oldCart._id },
+          { $pull: { menus: menu } },
+        );
+      }
+
+      // Add to new cart (using $addToSet to ensure uniqueness, handles idempotency)
+      const updateResult = await this.carts.updateOne(
+        { _id: newCart._id },
+        { $addToSet: { menus: menu } },
+      );
+
+      if (updateResult.modifiedCount === 0 && updateResult.matchedCount === 0) {
+        return { error: `Failed to add menu ${menu} to cart ${newCart._id}` };
+      }
+
+      return {
+        oldCart: oldCart?._id,
+        newCart: newCart._id,
+      };
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`Error moving menu to cart: ${errorMessage}`);
+      return { error: `Failed to move menu to cart: ${errorMessage}` };
     }
   }
 

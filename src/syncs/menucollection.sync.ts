@@ -106,6 +106,7 @@ export const UpdateMenuRequest: Sync = ({
   menu,
   session,
   date,
+  name,
   isAdmin,
   owner,
   requestInput,
@@ -151,8 +152,26 @@ export const UpdateMenuRequest: Sync = ({
         | { path: string; [key: string]: unknown }
         | undefined;
       const dateValue = input?.date;
+      const nameValue = input?.name;
       const hasDate = dateValue !== undefined && dateValue !== null;
-      if (!hasDate) {
+      const hasName = nameValue !== undefined && nameValue !== null;
+      // #region agent log
+      console.log(
+        "[SyncDebug] UpdateMenuRequest input field types",
+        {
+          menu,
+          hasDate,
+          dateValueType: typeof dateValue,
+          dateIsDate: dateValue instanceof Date,
+          dateIsString: typeof dateValue === "string",
+          hasName,
+          nameValueType: typeof nameValue,
+        },
+      );
+      // #endregion
+
+      // Skip if neither name nor date is provided
+      if (!hasDate && !hasName) {
         continue;
       }
 
@@ -197,7 +216,29 @@ export const UpdateMenuRequest: Sync = ({
                 const enrichedFrame: Record<symbol, unknown> = {
                   ...adminFrame,
                 };
-                enrichedFrame[date] = dateValue;
+                // Always bind all fields - use null for missing ones so then clause can match
+                // The concept's updateMenu will only use the fields that are present
+                // Convert date string to Date object if needed
+                const dateToBind = hasDate
+                  ? (typeof dateValue === "string" ? new Date(dateValue) : dateValue)
+                  : null;
+                enrichedFrame[date] = dateToBind;
+                enrichedFrame[name] = hasName ? nameValue : null;
+
+                // #region agent log
+                console.log(
+                  "[SyncDebug] UpdateMenuRequest binding frame",
+                  {
+                    menu,
+                    dateToBindType: typeof dateToBind,
+                    dateToBindIsDate: dateToBind instanceof Date,
+                    originalDateValueType: typeof dateValue,
+                    originalDateValueIsDate: dateValue instanceof Date,
+                    originalDateValueIsString: typeof dateValue === "string",
+                  },
+                );
+                // #endregion
+
                 authCheckedFrames.push(enrichedFrame);
               }
             }
@@ -209,7 +250,7 @@ export const UpdateMenuRequest: Sync = ({
   },
   then: actions([
     MenuCollection.updateMenu,
-    { menu, date },
+    { menu, date, name },
   ]),
 });
 

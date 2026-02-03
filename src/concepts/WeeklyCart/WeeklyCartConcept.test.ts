@@ -631,8 +631,7 @@ Deno.test("WeeklyCartConcept - addMenuToCart Action Tests", async (t) => {
   await t.step(
     "4. Fail to add a menu when cart doesn't exist",
     async () => {
-      const stepMessage =
-        "4. Fail to add a menu when cart doesn't exist";
+      const stepMessage = "4. Fail to add a menu when cart doesn't exist";
       printStepHeader(stepMessage);
       checkIndex = 0;
 
@@ -1048,6 +1047,253 @@ Deno.test("WeeklyCartConcept - Query Tests", async (t) => {
         (cartResult as { cart: ID }[]).length,
         0,
         "Should return an empty array if menu is not in any cart",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await client.close();
+});
+
+Deno.test("WeeklyCartConcept - moveMenuToCart Action Tests", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const weeklyCart = new WeeklyCartConcept(db);
+  let checkIndex = 0;
+  let cart1Id: ID;
+  let cart2Id: ID;
+
+  await t.step(
+    "1. Setup: Create two carts for different weeks",
+    async () => {
+      const stepMessage = "1. Setup: Create two carts for different weeks";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      const createCart1Result = await weeklyCart.createCart({
+        dateInWeek: nextMonday,
+      });
+      assertAndLog(
+        "cart" in createCart1Result,
+        true,
+        "Cart 1 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      cart1Id = (createCart1Result as { cart: ID }).cart;
+
+      const createCart2Result = await weeklyCart.createCart({
+        dateInWeek: twoWeeksFromMonday,
+      });
+      assertAndLog(
+        "cart" in createCart2Result,
+        true,
+        "Cart 2 creation should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      cart2Id = (createCart2Result as { cart: ID }).cart;
+    },
+  );
+
+  await t.step(
+    "2. Successfully move menu from one cart to another",
+    async () => {
+      const stepMessage = "2. Successfully move menu from one cart to another";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Add menu to first cart
+      await weeklyCart.addMenuToCart({
+        menu: menuSpaghetti,
+        menuDate: nextMonday,
+      });
+
+      // Verify menu is in cart1
+      const menusBefore = await weeklyCart._getMenusInCart({ cart: cart1Id });
+      assertAndLog(
+        (menusBefore as { menus: ID[] }[])[0].menus.includes(menuSpaghetti),
+        true,
+        "Menu should be in cart1 before move",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Move menu to cart2
+      const moveResult = await weeklyCart.moveMenuToCart({
+        menu: menuSpaghetti,
+        menuDate: twoWeeksFromMonday,
+      });
+      assertAndLog(
+        "newCart" in moveResult,
+        true,
+        "Moving menu should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).oldCart,
+        cart1Id,
+        "Old cart should be cart1",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).newCart,
+        cart2Id,
+        "New cart should be cart2",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify menu is removed from cart1
+      const menusAfterCart1 = await weeklyCart._getMenusInCart({
+        cart: cart1Id,
+      });
+      assertAndLog(
+        (menusAfterCart1 as { menus: ID[] }[])[0].menus.includes(menuSpaghetti),
+        false,
+        "Menu should not be in cart1 after move",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify menu is added to cart2
+      const menusAfterCart2 = await weeklyCart._getMenusInCart({
+        cart: cart2Id,
+      });
+      assertAndLog(
+        (menusAfterCart2 as { menus: ID[] }[])[0].menus.includes(menuSpaghetti),
+        true,
+        "Menu should be in cart2 after move",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "3. Idempotency: menu already in correct cart (no-op)",
+    async () => {
+      const stepMessage =
+        "3. Idempotency: menu already in correct cart (no-op)";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Move menu to same cart (should be idempotent)
+      const moveResult = await weeklyCart.moveMenuToCart({
+        menu: menuSpaghetti,
+        menuDate: twoWeeksFromMonday,
+      });
+      assertAndLog(
+        "newCart" in moveResult,
+        true,
+        "Moving menu to same cart should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).oldCart,
+        undefined,
+        "Old cart should be undefined (idempotent)",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).newCart,
+        cart2Id,
+        "New cart should be cart2",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify menu is still in cart2
+      const menusInCart2 = await weeklyCart._getMenusInCart({ cart: cart2Id });
+      assertAndLog(
+        (menusInCart2 as { menus: ID[] }[])[0].menus.includes(menuSpaghetti),
+        true,
+        "Menu should still be in cart2 after idempotent move",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "4. Menu not in any cart (just add to new cart)",
+    async () => {
+      const stepMessage = "4. Menu not in any cart (just add to new cart)";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Move menu that's not in any cart
+      const moveResult = await weeklyCart.moveMenuToCart({
+        menu: menuPizza,
+        menuDate: nextMonday,
+      });
+      assertAndLog(
+        "newCart" in moveResult,
+        true,
+        "Moving menu not in any cart should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).oldCart,
+        undefined,
+        "Old cart should be undefined (menu not in any cart)",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldCart?: ID; newCart: ID }).newCart,
+        cart1Id,
+        "New cart should be cart1",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify menu is in cart1
+      const menusInCart1 = await weeklyCart._getMenusInCart({ cart: cart1Id });
+      assertAndLog(
+        (menusInCart1 as { menus: ID[] }[])[0].menus.includes(menuPizza),
+        true,
+        "Menu should be in cart1 after move",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "5. Error: new cart doesn't exist for menuDate",
+    async () => {
+      const stepMessage = "5. Error: new cart doesn't exist for menuDate";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Try to move to a date that doesn't have a cart
+      const pastDate = new Date(lastMonday);
+      pastDate.setUTCDate(pastDate.getUTCDate() - 7); // One week before lastMonday
+
+      const moveResult = await weeklyCart.moveMenuToCart({
+        menu: menuTacos,
+        menuDate: pastDate,
+      });
+      assertAndLog(
+        "error" in moveResult,
+        true,
+        "Moving menu to non-existent cart should fail",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { error: string }).error.includes(
+          "No cart found for the week containing",
+        ),
+        true,
+        "Error message should indicate cart not found",
         stepMessage,
         ++checkIndex,
       );

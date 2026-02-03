@@ -3193,3 +3193,502 @@ Deno.test(
     await client.close();
   },
 );
+
+Deno.test("PurchaseSystemConcept - moveCompositeSubOrder Action Tests", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const purchaseSystem = new PurchaseSystemConcept(db);
+
+  let checkIndex = 0;
+  let rootCompId: ID, parentACompId: ID, parentBCompId: ID, childCompId: ID;
+  let grandchildCompId: ID;
+  let selectId1: ID, selectId2: ID;
+  let atomicId1: ID, atomicId2: ID;
+
+  await t.step("1. Setup: Create composite order tree structure", async () => {
+    const stepMessage = "1. Setup: Create composite order tree structure";
+    printStepHeader(stepMessage);
+    checkIndex = 0;
+
+    // Create root and parent composite orders
+    rootCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "root" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+    parentACompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "parentA" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+    parentBCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "parentB" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+    childCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "child" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+    grandchildCompId = (await purchaseSystem.createCompositeOrder({
+      associateID: "grandchild" as ID,
+    }) as { compositeOrder: ID }).compositeOrder;
+
+    // Create select orders and atomic orders
+    selectId1 = (await purchaseSystem.createSelectOrder({
+      associateID: "select1" as ID,
+    }) as { selectOrder: ID }).selectOrder;
+    selectId2 = (await purchaseSystem.createSelectOrder({
+      associateID: "select2" as ID,
+    }) as { selectOrder: ID }).selectOrder;
+
+    atomicId1 = (await purchaseSystem.createAtomicOrder({
+      selectOrder: selectId1,
+      associateID: "atomic1" as ID,
+      quantity: 1,
+      units: "ea",
+      price: 10.0,
+    }) as { atomicOrder: ID }).atomicOrder;
+    atomicId2 = (await purchaseSystem.createAtomicOrder({
+      selectOrder: selectId2,
+      associateID: "atomic2" as ID,
+      quantity: 1,
+      units: "ea",
+      price: 5.0,
+    }) as { atomicOrder: ID }).atomicOrder;
+
+    // Build initial hierarchy: root -> parentA -> child -> grandchild
+    // Also add parentB to root
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: rootCompId,
+      childOrder: parentACompId,
+      scaleFactor: 1.0,
+    });
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: rootCompId,
+      childOrder: parentBCompId,
+      scaleFactor: 1.0,
+    });
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: parentACompId,
+      childOrder: childCompId,
+      scaleFactor: 1.0,
+    });
+    await purchaseSystem.addCompositeSubOrder({
+      parentOrder: childCompId,
+      childOrder: grandchildCompId,
+      scaleFactor: 1.0,
+    });
+
+    // Add select orders to child and grandchild
+    await purchaseSystem.addSelectOrderToCompositeOrder({
+      compositeOrder: childCompId,
+      selectOrder: selectId1,
+      scaleFactor: 1.0,
+    });
+    await purchaseSystem.addSelectOrderToCompositeOrder({
+      compositeOrder: grandchildCompId,
+      selectOrder: selectId2,
+      scaleFactor: 1.0,
+    });
+
+    // Calculate optimal purchase for the tree
+    await purchaseSystem.calculateOptimalPurchase({
+      compositeOrders: [rootCompId],
+    });
+  });
+
+  await t.step(
+    "2. Successfully move composite order from one parent to another",
+    async () => {
+      const stepMessage =
+        "2. Successfully move composite order from one parent to another";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Verify initial state: child is under parentA
+      const childBefore = await purchaseSystem.compositeOrders.findOne({
+        _id: childCompId,
+      });
+      assertExistsAndLog(
+        childBefore,
+        "Child composite should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        childBefore!.parentOrder,
+        parentACompId,
+        "Child should initially be under parentA",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Move child from parentA to parentB
+      const moveResult = await purchaseSystem.moveCompositeSubOrder({
+        childOrder: childCompId,
+        newParentOrder: parentBCompId,
+        scaleFactor: 1.0,
+      });
+      assertAndLog(
+        "newParentOrder" in moveResult,
+        true,
+        "Moving composite order should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .oldParentOrder,
+        parentACompId,
+        "Old parent should be parentA",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .newParentOrder,
+        parentBCompId,
+        "New parent should be parentB",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify child is removed from parentA
+      const parentAAfter = await purchaseSystem.compositeOrders.findOne({
+        _id: parentACompId,
+      });
+      assertExistsAndLog(
+        parentAAfter,
+        "ParentA should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        childCompId in parentAAfter!.childCompositeOrders,
+        false,
+        "Child should not be in parentA's children",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify child is added to parentB
+      const parentBAfter = await purchaseSystem.compositeOrders.findOne({
+        _id: parentBCompId,
+      });
+      assertExistsAndLog(
+        parentBAfter,
+        "ParentB should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        childCompId in parentBAfter!.childCompositeOrders,
+        true,
+        "Child should be in parentB's children",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify child's parentOrder and rootOrder are updated
+      const childAfter = await purchaseSystem.compositeOrders.findOne({
+        _id: childCompId,
+      });
+      assertExistsAndLog(
+        childAfter,
+        "Child composite should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        childAfter!.parentOrder,
+        parentBCompId,
+        "Child's parentOrder should be parentB",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        childAfter!.rootOrder,
+        rootCompId,
+        "Child's rootOrder should be root",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify grandchild's rootOrder is also updated recursively
+      const grandchildAfter = await purchaseSystem.compositeOrders.findOne({
+        _id: grandchildCompId,
+      });
+      assertExistsAndLog(
+        grandchildAfter,
+        "Grandchild composite should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        grandchildAfter!.rootOrder,
+        rootCompId,
+        "Grandchild's rootOrder should be root (updated recursively)",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "3. Idempotency: already under correct parent (no-op)",
+    async () => {
+      const stepMessage =
+        "3. Idempotency: already under correct parent (no-op)";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Move child to same parent (should be idempotent)
+      const moveResult = await purchaseSystem.moveCompositeSubOrder({
+        childOrder: childCompId,
+        newParentOrder: parentBCompId,
+        scaleFactor: 1.0,
+      });
+      assertAndLog(
+        "newParentOrder" in moveResult,
+        true,
+        "Moving to same parent should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .oldParentOrder,
+        undefined,
+        "Old parent should be undefined (idempotent - no change)",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .newParentOrder,
+        parentBCompId,
+        "New parent should be parentB",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step(
+    "4. No old parent (just add to new parent)",
+    async () => {
+      const stepMessage = "4. No old parent (just add to new parent)";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Create a new orphan composite order
+      const orphanCompId = (await purchaseSystem.createCompositeOrder({
+        associateID: "orphan" as ID,
+      }) as { compositeOrder: ID }).compositeOrder;
+
+      // Move orphan to parentB
+      const moveResult = await purchaseSystem.moveCompositeSubOrder({
+        childOrder: orphanCompId,
+        newParentOrder: parentBCompId,
+        scaleFactor: 1.0,
+      });
+      assertAndLog(
+        "newParentOrder" in moveResult,
+        true,
+        "Moving orphan should succeed",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .oldParentOrder,
+        undefined,
+        "Old parent should be undefined (orphan had no parent)",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (moveResult as { oldParentOrder?: ID; newParentOrder: ID })
+          .newParentOrder,
+        parentBCompId,
+        "New parent should be parentB",
+        stepMessage,
+        ++checkIndex,
+      );
+
+      // Verify orphan is now under parentB
+      const orphanAfter = await purchaseSystem.compositeOrders.findOne({
+        _id: orphanCompId,
+      });
+      assertExistsAndLog(
+        orphanAfter,
+        "Orphan composite should exist",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        orphanAfter!.parentOrder,
+        parentBCompId,
+        "Orphan's parentOrder should be parentB",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await t.step("5. Error: childOrder doesn't exist", async () => {
+    const stepMessage = "5. Error: childOrder doesn't exist";
+    printStepHeader(stepMessage);
+    checkIndex = 0;
+
+    const moveResult = await purchaseSystem.moveCompositeSubOrder({
+      childOrder: "nonExistent" as ID,
+      newParentOrder: parentBCompId,
+      scaleFactor: 1.0,
+    });
+    assertAndLog(
+      "error" in moveResult,
+      true,
+      "Moving non-existent child should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (moveResult as { error: string }).error.includes(
+        "Child CompositeOrder 'nonExistent' not found",
+      ),
+      true,
+      "Error message should indicate child not found",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("6. Error: newParentOrder doesn't exist", async () => {
+    const stepMessage = "6. Error: newParentOrder doesn't exist";
+    printStepHeader(stepMessage);
+    checkIndex = 0;
+
+    const moveResult = await purchaseSystem.moveCompositeSubOrder({
+      childOrder: childCompId,
+      newParentOrder: "nonExistentParent" as ID,
+      scaleFactor: 1.0,
+    });
+    assertAndLog(
+      "error" in moveResult,
+      true,
+      "Moving to non-existent parent should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (moveResult as { error: string }).error.includes(
+        "New parent CompositeOrder 'nonExistentParent' not found",
+      ),
+      true,
+      "Error message should indicate parent not found",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("7. Error: cycle detection", async () => {
+    const stepMessage = "7. Error: cycle detection";
+    printStepHeader(stepMessage);
+    checkIndex = 0;
+
+    // Try to move root to child (would create cycle: root -> parentB -> child -> root)
+    const moveResult = await purchaseSystem.moveCompositeSubOrder({
+      childOrder: rootCompId,
+      newParentOrder: childCompId,
+      scaleFactor: 1.0,
+    });
+    assertAndLog(
+      "error" in moveResult,
+      true,
+      "Moving to create cycle should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (moveResult as { error: string }).error.includes("would form a cycle"),
+      true,
+      "Error message should indicate cycle would be formed",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step("8. Error: scaleFactor <= 0", async () => {
+    const stepMessage = "8. Error: scaleFactor <= 0";
+    printStepHeader(stepMessage);
+    checkIndex = 0;
+
+    const moveResultZero = await purchaseSystem.moveCompositeSubOrder({
+      childOrder: childCompId,
+      newParentOrder: parentACompId,
+      scaleFactor: 0,
+    });
+    assertAndLog(
+      "error" in moveResultZero,
+      true,
+      "Moving with scaleFactor 0 should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+    assertAndLog(
+      (moveResultZero as { error: string }).error.includes(
+        "Scale factor must be greater than 0",
+      ),
+      true,
+      "Error message should indicate invalid scale factor",
+      stepMessage,
+      ++checkIndex,
+    );
+
+    const moveResultNegative = await purchaseSystem.moveCompositeSubOrder({
+      childOrder: childCompId,
+      newParentOrder: parentACompId,
+      scaleFactor: -1.0,
+    });
+    assertAndLog(
+      "error" in moveResultNegative,
+      true,
+      "Moving with negative scaleFactor should fail",
+      stepMessage,
+      ++checkIndex,
+    );
+  });
+
+  await t.step(
+    "9. Verify calculateOptimalPurchase called for affected roots",
+    async () => {
+      const stepMessage =
+        "9. Verify calculateOptimalPurchase called for affected roots";
+      printStepHeader(stepMessage);
+      checkIndex = 0;
+
+      // Move child back to parentA
+      await purchaseSystem.moveCompositeSubOrder({
+        childOrder: childCompId,
+        newParentOrder: parentACompId,
+        scaleFactor: 1.0,
+      });
+
+      // Verify costs are recalculated (should have values, not 0)
+      const rootCost = await purchaseSystem._getOrderCost({
+        compositeOrder: rootCompId,
+      });
+      assertAndLog(
+        "error" in rootCost,
+        false,
+        "Query root cost should not return an error",
+        stepMessage,
+        ++checkIndex,
+      );
+      assertAndLog(
+        (rootCost as { totalCost: number }[])[0].totalCost,
+        15.0,
+        "Root cost should be 15.0 (child: 10, grandchild: 5)",
+        stepMessage,
+        ++checkIndex,
+      );
+    },
+  );
+
+  await client.close();
+});

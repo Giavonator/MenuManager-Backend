@@ -139,6 +139,17 @@ type RemoveCompositeSubOrderInput = {
 };
 type RemoveCompositeSubOrderOutput = Result<{ success: true }>;
 
+// moveCompositeSubOrder
+type MoveCompositeSubOrderInput = {
+  childOrder: CompositeOrder;
+  newParentOrder: CompositeOrder;
+  scaleFactor: number;
+};
+type MoveCompositeSubOrderOutput = Result<{
+  oldParentOrder?: CompositeOrder;
+  newParentOrder: CompositeOrder;
+}>;
+
 // updateSubOrderScaleFactor
 type UpdateSubOrderScaleFactorInput = {
   parentOrder: CompositeOrder;
@@ -1040,10 +1051,10 @@ export default class PurchaseSystemConcept {
         return { error: `Child CompositeOrder '${childOrderID}' not found.` };
       }
       if (!(childOrderID in existingParentOrder.childCompositeOrders)) {
-        return {
-          error:
-            `Child CompositeOrder '${childOrderID}' is not a child of Parent CompositeOrder '${parentOrderID}'.`,
-        };
+        // Make this action idempotent: if the relationship is already missing,
+        // treat it as a successful no-op instead of an error. This can happen
+        // if upstream syncs or retries call this action multiple times.
+        return { success: true };
       }
 
       // Remove `childOrder` from `parentOrder.childCompositeOrders`.
@@ -1079,6 +1090,142 @@ export default class PurchaseSystemConcept {
         error: `Failed to remove Composite sub-order: ${
           this.getErrorMessage(e)
         }`,
+      };
+    }
+  }
+
+  /**
+   * Action to move a Composite sub-order from one parent to another atomically.
+   *
+   * moveCompositeSubOrder (childOrder: CompositeOrder, newParentOrder: CompositeOrder, scaleFactor: Float): (oldParentOrder?: CompositeOrder, newParentOrder: CompositeOrder)
+   *
+   * **requires** `childOrder` exists. `newParentOrder` exists. `scaleFactor` > 0.
+   * For all `childOrder.childCompositeOrders` and the subsequent CompositeOrder children,
+   * none of which are within `newParentOrder.childCompositeOrders` or its subsequent children
+   * (Essentially requires no cycle to be formed).
+   *
+   * **effects**
+   * - If `childOrder` has a current parent (different from itself), removes it from that parent's `childCompositeOrders`
+   * - Adds `childOrder` to `newParentOrder.childCompositeOrders` with the given `scaleFactor`
+   * - Sets `childOrder.parentOrder` to `newParentOrder` and `childOrder.rootOrder` to `newParentOrder.rootOrder`
+   * - Sets all `childOrder.childCompositeOrders` and their subsequent CompositeOrder children to have new root `newParentOrder.rootOrder`
+   * - Calls `calculateOptimalPurchase` for the affected root orders afterwards
+   *
+   * Returns the old parent (if removed) and new parent.
+   */
+  async moveCompositeSubOrder(
+    input: MoveCompositeSubOrderInput,
+  ): Promise<MoveCompositeSubOrderOutput> {
+    try {
+      const {
+        childOrder: childOrderID,
+        newParentOrder: newParentOrderID,
+        scaleFactor,
+      } = input;
+
+      // Requires: `childOrder` exists.
+      const existingChildOrder = await this.compositeOrders.findOne({
+        _id: childOrderID,
+      });
+      if (!existingChildOrder) {
+        return { error: `Child CompositeOrder '${childOrderID}' not found.` };
+      }
+
+      // Requires: `newParentOrder` exists.
+      const existingNewParentOrder = await this.compositeOrders.findOne({
+        _id: newParentOrderID,
+      });
+      if (!existingNewParentOrder) {
+        return {
+          error: `New parent CompositeOrder '${newParentOrderID}' not found.`,
+        };
+      }
+
+      // Cannot move to itself
+      if (childOrderID === newParentOrderID) {
+        return { error: "Cannot move a composite order to itself." };
+      }
+
+      // Requires: No cycle to be formed.
+      if (await this.wouldFormCycle(newParentOrderID, childOrderID)) {
+        return {
+          error:
+            `Moving CompositeOrder '${childOrderID}' to '${newParentOrderID}' would form a cycle.`,
+        };
+      }
+
+      // Requires: `scaleFactor` > 0.
+      if (scaleFactor <= 0) {
+        return { error: "Scale factor must be greater than 0." };
+      }
+
+      const oldParentOrderID = existingChildOrder.parentOrder;
+      let oldParentOrder: CompositeOrder | undefined;
+
+      // If child has a parent (and it's not itself), and it's different from new parent
+      // If oldParentOrderID === newParentOrderID, oldParentOrder remains undefined (idempotent)
+      if (
+        oldParentOrderID !== childOrderID &&
+        oldParentOrderID !== newParentOrderID
+      ) {
+        oldParentOrder = oldParentOrderID;
+
+        // Check if old parent still exists and has this child
+        const oldParentDoc = await this.compositeOrders.findOne({
+          _id: oldParentOrderID,
+        });
+        if (oldParentDoc && childOrderID in oldParentDoc.childCompositeOrders) {
+          // Remove from old parent
+          await this.compositeOrders.updateOne(
+            { _id: oldParentOrderID },
+            { $unset: { [`childCompositeOrders.${childOrderID}`]: "" } },
+          );
+        }
+      }
+
+      // Add to new parent
+      await this.compositeOrders.updateOne(
+        { _id: newParentOrderID },
+        { $set: { [`childCompositeOrders.${childOrderID}`]: scaleFactor } },
+      );
+
+      // Set `childOrder.parentOrder` to `newParentOrder`
+      await this.compositeOrders.updateOne(
+        { _id: childOrderID },
+        { $set: { parentOrder: newParentOrderID } },
+      );
+
+      // Sets all `childOrder.childCompositeOrders` and their subsequent CompositeOrder children to have new root `newParentOrder.rootOrder`
+      await this.updateRootOrderRecursive(
+        childOrderID,
+        existingNewParentOrder.rootOrder,
+      );
+
+      // Call `calculateOptimalPurchase` for the affected root orders
+      const rootOrdersToRecalculate = new Set<CompositeOrder>();
+      rootOrdersToRecalculate.add(existingNewParentOrder.rootOrder);
+
+      // If there was an old parent, also recalculate its root
+      if (oldParentOrder) {
+        const oldParentDoc = await this.compositeOrders.findOne({
+          _id: oldParentOrder,
+        });
+        if (oldParentDoc) {
+          rootOrdersToRecalculate.add(oldParentDoc.rootOrder);
+        }
+      }
+
+      await this.calculateOptimalPurchase({
+        compositeOrders: Array.from(rootOrdersToRecalculate),
+      });
+
+      return {
+        oldParentOrder,
+        newParentOrder: newParentOrderID,
+      };
+    } catch (e: unknown) {
+      return {
+        error: `Failed to move Composite sub-order: ${this.getErrorMessage(e)}`,
       };
     }
   }
@@ -1142,9 +1289,88 @@ export default class PurchaseSystemConcept {
         { $set: { [updateField]: newScaleFactor } },
       );
 
+      // Determine the actual root order
+      // If parentOrder.rootOrder === parentOrderID, it claims to be a root
+      // But if it has a parentOrder, it's actually not a root - traverse up
+      let actualRootOrder = existingParentOrder.rootOrder;
+
+      // Check if the parentOrder is actually a child of another composite order
+      // (This handles cases where parentOrder field is incorrectly set to itself)
+      const queryField = `childCompositeOrders.${parentOrderID}`;
+      const actualParent = await this.compositeOrders.findOne({
+        [queryField]: { $exists: true },
+      });
+
+      if (actualParent) {
+        // Use the actual parent's rootOrder
+        actualRootOrder = actualParent.rootOrder;
+      } else {
+        // Check all composite orders to see which ones have childCompositeOrders
+        const allComposites = await this.compositeOrders.find({
+          childCompositeOrders: { $exists: true, $ne: {} },
+        }).toArray();
+        // Check ALL composites, not just first 5
+        for (const comp of allComposites) {
+          const childIds = Object.keys(comp.childCompositeOrders || {});
+          if (childIds.includes(parentOrderID)) {
+            actualRootOrder = comp.rootOrder;
+            break;
+          }
+        }
+        // Also try to find the cart by checking if the menu's associateID is in a cart
+        if (
+          actualRootOrder === existingParentOrder.rootOrder &&
+          existingParentOrder.associateID
+        ) {
+          // Query WeeklyCart to find which cart contains this menu
+          const { WeeklyCart } = await import("@concepts");
+          const cartWithMenuResult = await WeeklyCart._getCartWithMenu({
+            menu: existingParentOrder.associateID as ID,
+          });
+          if (
+            Array.isArray(cartWithMenuResult) && cartWithMenuResult.length > 0
+          ) {
+            const cartId = cartWithMenuResult[0].cart;
+            // Find the cart's composite order
+            const cartCompositeOrder = await this.compositeOrders.findOne({
+              associateID: cartId,
+              childSelectOrders: { $exists: true },
+            });
+            if (cartCompositeOrder) {
+              actualRootOrder = cartCompositeOrder.rootOrder;
+            }
+          }
+        }
+      }
+
+      if (
+        actualRootOrder === existingParentOrder.rootOrder &&
+        existingParentOrder.rootOrder === parentOrderID &&
+        existingParentOrder.parentOrder &&
+        existingParentOrder.parentOrder !== parentOrderID
+      ) {
+        // The parent claims to be root but has a parent - traverse up to find real root
+        let currentOrderID: CompositeOrder | null =
+          existingParentOrder.parentOrder;
+        while (currentOrderID) {
+          const currentOrder: CompositeOrderDoc | null = await this
+            .compositeOrders.findOne({ _id: currentOrderID });
+          if (!currentOrder) break;
+          if (currentOrder.rootOrder === currentOrderID) {
+            // Found the actual root
+            actualRootOrder = currentOrderID;
+            break;
+          }
+          currentOrderID = currentOrder.parentOrder &&
+              currentOrder.parentOrder !== currentOrderID
+            ? currentOrder.parentOrder
+            : null;
+        }
+      }
+
       // Call `calculateOptimalPurchase` for the root order
       await this.calculateOptimalPurchase({
-        compositeOrders: [existingParentOrder.rootOrder],
+        compositeOrders: [actualRootOrder],
       });
 
       return { success: true };
@@ -1554,7 +1780,7 @@ export default class PurchaseSystemConcept {
               }
 
               // Get the quantity actually needed from the child composite
-              let childQuantityNeeded =
+              const childQuantityNeeded =
                 childResults.quantitiesNeeded?.[atomicID as AtomicOrder] ?? 0;
 
               // If quantitiesNeeded is missing, this indicates a data consistency issue
@@ -1697,7 +1923,14 @@ export default class PurchaseSystemConcept {
           // If we have any atomic costs, prorate them to each composite order
           if (totalAtomicCost.size > 0) {
             for (const [compId, compResults] of calculatedIntermediateResults) {
-              if (!compositeOrdersInTree.has(compId)) continue;
+              if (!compositeOrdersInTree.has(compId)) {
+                continue;
+              }
+
+              // Skip proration for the root composite - it will be calculated as sum of children after proration
+              if (compId === rootOrderID) {
+                continue;
+              }
 
               const compQuantities = compResults.quantitiesNeeded ||
                 ({} as Record<AtomicOrder, number>);
@@ -1710,7 +1943,8 @@ export default class PurchaseSystemConcept {
                 if (compQty <= 0 || quantityNeeded <= 0) continue;
 
                 const share = compQty / quantityNeeded;
-                proratedCost += cost * share;
+                const contribution = cost * share;
+                proratedCost += contribution;
               }
 
               // Update in-memory results so any callers relying on intermediate
@@ -1721,6 +1955,30 @@ export default class PurchaseSystemConcept {
               await this.compositeOrders.updateOne(
                 { _id: compId },
                 { $set: { totalCost: proratedCost } },
+              );
+            }
+
+            // Calculate root cost as sum of all its child composite costs (after proration)
+            const rootResults = calculatedIntermediateResults.get(rootOrderID);
+            const rootCompositeDoc = compositeOrdersInTree.get(rootOrderID);
+            if (rootResults && rootCompositeDoc) {
+              let sumOfChildren = 0;
+              for (
+                const childId of Object.keys(
+                  rootCompositeDoc.childCompositeOrders || {},
+                )
+              ) {
+                const childResults = calculatedIntermediateResults.get(
+                  childId as CompositeOrder,
+                );
+                if (childResults) {
+                  sumOfChildren += childResults.cost;
+                }
+              }
+              rootResults.cost = sumOfChildren;
+              await this.compositeOrders.updateOne(
+                { _id: rootOrderID },
+                { $set: { totalCost: sumOfChildren } },
               );
             }
           }

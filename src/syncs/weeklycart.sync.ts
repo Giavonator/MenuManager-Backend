@@ -301,144 +301,6 @@ export const RemoveMenuOnMenuDelete: Sync = ({
 });
 
 // ============================================================================
-// RemoveMenuOnMenuDateChange Sync
-// When a menu's date changes and it was in a cart with a different week,
-// remove it from the old cart first
-// ============================================================================
-
-export const RemoveMenuOnMenuDateChange: Sync = ({
-  menu,
-  date,
-  currentCart,
-  startDate,
-  endDate,
-  newDate,
-}) => ({
-  when: actions(
-    [
-      MenuCollection.updateMenu,
-      { menu, date },
-      {},
-    ],
-  ),
-  where: async (frames) => {
-    // Filter frames where date parameter was provided (indicates date change)
-    frames = frames.filter((frame) => {
-      const frameRecord = frame as Record<symbol, unknown>;
-      const dateValue = frameRecord[date];
-      return dateValue !== undefined;
-    });
-
-    if (frames.length === 0) {
-      return new Frames();
-    }
-
-    // Process each frame to check if menu needs to be removed from cart
-    const resultFrames = new Frames();
-    for (const frame of frames) {
-      // Get menu's new date
-      const menuFrames = await (new Frames(frame).query(
-        MenuCollection._getMenuDetails as unknown as (
-          input: { menu: string },
-        ) => Promise<
-          Array<{
-            name: string;
-            date: Date;
-            owner: string;
-          }>
-        >,
-        { menu },
-        { newDate },
-      ) as Promise<Frames>);
-
-      for (const menuFrame of menuFrames) {
-        const menuFrameRecord = menuFrame as Record<symbol, unknown>;
-        const newDateValue = menuFrameRecord[newDate];
-        if (!(newDateValue instanceof Date)) {
-          continue;
-        }
-
-        // Check if menu is in a cart
-        const cartFrames = await (new Frames(menuFrame).query(
-          WeeklyCart._getCartWithMenu as unknown as (
-            input: { menu: string },
-          ) => Promise<Array<{ cart: string }>>,
-          { menu },
-          { currentCart },
-        ) as Promise<Frames>);
-
-        // If menu is not in a cart, skip removal
-        if (cartFrames.length === 0) {
-          continue;
-        }
-
-        // Menu is in a cart, check if new date is in a different week
-        for (const cartFrame of cartFrames) {
-          const cartFrameRecord = cartFrame as Record<symbol, unknown>;
-          const currentCartValue = cartFrameRecord[currentCart];
-          if (typeof currentCartValue !== "string") {
-            continue;
-          }
-
-          // Get cart's date range
-          const cartDatesFrames = await (new Frames(cartFrame).query(
-            WeeklyCart._getCartDates as unknown as (
-              input: { cart: string },
-            ) => Promise<
-              Array<{
-                startDate: Date;
-                endDate: Date;
-              }>
-            >,
-            { cart: currentCartValue },
-            { startDate, endDate },
-          ) as Promise<Frames>);
-
-          for (const cartDatesFrame of cartDatesFrames) {
-            const cartDatesFrameRecord = cartDatesFrame as Record<
-              symbol,
-              unknown
-            >;
-            const startDateValue = cartDatesFrameRecord[startDate];
-            const endDateValue = cartDatesFrameRecord[endDate];
-
-            if (
-              !(startDateValue instanceof Date) ||
-              !(endDateValue instanceof Date)
-            ) {
-              continue;
-            }
-
-            // Normalize dates for comparison
-            const normalizedNewDate = new Date(newDateValue);
-            normalizedNewDate.setUTCHours(0, 0, 0, 0);
-
-            const normalizedStartDate = new Date(startDateValue);
-            normalizedStartDate.setUTCHours(0, 0, 0, 0);
-
-            const normalizedEndDate = new Date(endDateValue);
-            normalizedEndDate.setUTCHours(0, 0, 0, 0);
-
-            // If new date is outside the current cart's week, remove from cart
-            if (
-              normalizedNewDate < normalizedStartDate ||
-              normalizedNewDate > normalizedEndDate
-            ) {
-              resultFrames.push(frame);
-            }
-          }
-        }
-      }
-    }
-    return resultFrames;
-  },
-  then: actions([
-    WeeklyCart.removeMenuFromCart,
-    { menu },
-  ]),
-});
-
-// ============================================================================
 // EnsureCartExistsOnMenuDateChange Sync
 // When a menu's date is updated, ensure a cart exists for the new week
 // ============================================================================
@@ -461,7 +323,8 @@ export const EnsureCartExistsOnMenuDateChange: Sync = ({
     frames = frames.filter((frame) => {
       const frameRecord = frame as Record<symbol, unknown>;
       const dateValue = frameRecord[date];
-      return dateValue !== undefined;
+      return dateValue !== undefined && dateValue !== null &&
+        dateValue instanceof Date;
     });
 
     if (frames.length === 0) {
@@ -471,64 +334,46 @@ export const EnsureCartExistsOnMenuDateChange: Sync = ({
     // Get menu's new date and check if cart exists
     const resultFrames = new Frames();
     for (const frame of frames) {
-      const menuFrames = await (new Frames(frame).query(
-        MenuCollection._getMenuDetails as unknown as (
-          input: { menu: string },
-        ) => Promise<
-          Array<{
-            name: string;
-            date: Date;
-            owner: string;
-          }>
-        >,
-        { menu },
-        { newDate },
+      // Use the date from the frame (already set by updateMenu action)
+      const frameRecord = frame as Record<symbol, unknown>;
+      const newDateValue = frameRecord[date];
+
+      if (!(newDateValue instanceof Date)) {
+        continue;
+      }
+
+      // Check if cart exists for the new date
+      const cartFrames = await (new Frames(frame).query(
+        WeeklyCart._getCartByDate as unknown as (
+          input: { date: Date },
+        ) => Promise<Array<{ cart: string }>>,
+        { date: newDateValue },
+        { cart },
       ) as Promise<Frames>);
 
-      for (const menuFrame of menuFrames) {
-        const menuFrameRecord = menuFrame as Record<symbol, unknown>;
-        const newDateValue = menuFrameRecord[newDate];
-        if (!(newDateValue instanceof Date)) {
-          continue;
-        }
-
-        // Check if cart exists for the new date
-        const cartFrames = await (new Frames(menuFrame).query(
-          WeeklyCart._getCartByDate as unknown as (
-            input: { date: Date },
-          ) => Promise<Array<{ cart: string }>>,
-          { date: newDateValue },
-          { cart },
-        ) as Promise<Frames>);
-
-        // Only create cart if it doesn't exist
-        if (cartFrames.length === 0) {
-          resultFrames.push(menuFrame);
-        }
+      // Only create cart if it doesn't exist
+      if (cartFrames.length === 0) {
+        resultFrames.push(frame);
       }
     }
     return resultFrames;
   },
   then: actions([
     WeeklyCart.createCart,
-    { dateInWeek: newDate },
+    { dateInWeek: date },
   ]),
 });
 
 // ============================================================================
-// AddMenuOnMenuDateChange Sync
-// When a menu's date is updated, add it to the cart for the new date
-// This handles both: menu not in cart, and menu moved to new week
+// MoveMenuOnMenuDateChange Sync
+// When a menu's date is updated, move it to the cart for the new date atomically
+// This replaces RemoveMenuOnMenuDateChange and AddMenuOnMenuDateChange
 // ============================================================================
 
-export const AddMenuOnMenuDateChange: Sync = ({
+export const MoveMenuOnMenuDateChange: Sync = ({
   menu,
   date,
-  currentCart,
-  startDate,
-  endDate,
-  newDate,
-  newCart,
+  cart,
 }) => ({
   when: actions(
     [
@@ -542,263 +387,46 @@ export const AddMenuOnMenuDateChange: Sync = ({
     frames = frames.filter((frame) => {
       const frameRecord = frame as Record<symbol, unknown>;
       const dateValue = frameRecord[date];
-      return dateValue !== undefined;
+      return dateValue !== undefined && dateValue !== null &&
+        dateValue instanceof Date;
     });
 
     if (frames.length === 0) {
-      return new Frames(); // No date change, return empty frames
+      return new Frames();
     }
 
-    // Process each frame
-    const resultFrames = new Frames();
-    for (const frame of frames) {
-      // Get menu's new date from menu details
-      const menuFrames = await (new Frames(frame).query(
-        MenuCollection._getMenuDetails as unknown as (
-          input: { menu: string },
-        ) => Promise<
-          Array<{
-            name: string;
-            date: Date;
-            owner: string;
-          }>
-        >,
-        { menu },
-        { newDate },
-      ) as Promise<Frames>);
-
-      // Filter out frames with errors (menu not found)
-      for (const menuFrame of menuFrames) {
-        const menuFrameRecord = menuFrame as Record<symbol, unknown>;
-        const newDateValue = menuFrameRecord[newDate];
-        if (!(newDateValue instanceof Date)) {
-          continue;
-        }
-
-        // Check if menu is currently in a cart
-        const cartFrames = await (new Frames(menuFrame).query(
-          WeeklyCart._getCartWithMenu as unknown as (
-            input: { menu: string },
-          ) => Promise<Array<{ cart: string }>>,
-          { menu },
-          { currentCart },
-        ) as Promise<Frames>);
-
-        // If menu is not in any cart, check if cart exists for new date
-        if (cartFrames.length === 0) {
-          // Check if cart exists for the new date
-          const newCartFrames = await (new Frames(menuFrame).query(
-            WeeklyCart._getCartByDate as unknown as (
-              input: { date: Date },
-            ) => Promise<Array<{ cart: string }>>,
-            { date: newDateValue },
-            { newCart },
-          ) as Promise<Frames>);
-
-          // Only proceed if cart exists (or will exist after EnsureCartExistsOnMenuDateChange)
-          if (newCartFrames.length > 0) {
-            resultFrames.push({
-              ...menuFrame,
-              [date]: newDateValue,
-            });
-          }
-          continue;
-        }
-
-        // Menu is in a cart, check if new date is in a different week
-        for (const cartFrame of cartFrames) {
-          const cartFrameRecord = cartFrame as Record<symbol, unknown>;
-          const currentCartValue = cartFrameRecord[currentCart];
-          if (typeof currentCartValue !== "string") {
-            continue;
-          }
-
-          // Get cart's date range
-          const cartDatesFrames = await (new Frames(cartFrame).query(
-            WeeklyCart._getCartDates as unknown as (
-              input: { cart: string },
-            ) => Promise<
-              Array<{
-                startDate: Date;
-                endDate: Date;
-              }>
-            >,
-            { cart: currentCartValue },
-            { startDate, endDate },
-          ) as Promise<Frames>);
-
-          // Filter out frames with errors
-          for (const cartDatesFrame of cartDatesFrames) {
-            const cartDatesFrameRecord = cartDatesFrame as Record<
-              symbol,
-              unknown
-            >;
-            const startDateValue = cartDatesFrameRecord[startDate];
-            const endDateValue = cartDatesFrameRecord[endDate];
-
-            if (
-              !(startDateValue instanceof Date) ||
-              !(endDateValue instanceof Date)
-            ) {
-              continue;
-            }
-
-            // Normalize dates for comparison
-            const normalizedNewDate = new Date(newDateValue);
-            normalizedNewDate.setUTCHours(0, 0, 0, 0);
-
-            const normalizedStartDate = new Date(startDateValue);
-            normalizedStartDate.setUTCHours(0, 0, 0, 0);
-
-            const normalizedEndDate = new Date(endDateValue);
-            normalizedEndDate.setUTCHours(0, 0, 0, 0);
-
-            // If new date is outside the current cart's week, add to new cart
-            // If new date is within the current cart's week, do nothing
-            if (
-              normalizedNewDate < normalizedStartDate ||
-              normalizedNewDate > normalizedEndDate
-            ) {
-              // Week changed, check if cart exists for new date
-              const newCartFrames = await (new Frames(cartDatesFrame).query(
-                WeeklyCart._getCartByDate as unknown as (
-                  input: { date: Date },
-                ) => Promise<Array<{ cart: string }>>,
-                { date: newDateValue },
-                { newCart },
-              ) as Promise<Frames>);
-
-              // Only proceed if cart exists (or will exist after EnsureCartExistsOnMenuDateChange)
-              if (newCartFrames.length > 0) {
-                resultFrames.push({
-                  ...cartDatesFrame,
-                  [date]: newDateValue,
-                });
-              }
-            }
-            // If new date is within the current cart's week, do nothing (menu already in correct cart)
-          }
-        }
-      }
-    }
-    return resultFrames;
-  },
-  then: actions([
-    WeeklyCart.addMenuToCart,
-    { menu, menuDate: date },
-  ]),
-});
-
-// AddMenuAfterMenuDateChangeCart: Call addMenuToCart after cart is created for new date
-export const AddMenuAfterMenuDateChangeCart: Sync = ({
-  menu,
-  date,
-  cart,
-  startDate,
-  endDate,
-  newDate,
-}) => ({
-  when: actions(
-    [
-      WeeklyCart.createCart,
-      {},
-      { cart },
-    ],
-    [
-      MenuCollection.updateMenu,
-      { menu, date },
-      {},
-    ],
-  ),
-  where: async (frames) => {
-    // Match frames where the cart was created for the menu's new date
+    // Check if cart exists for the new date
     const resultFrames = new Frames();
     for (const frame of frames) {
       const frameRecord = frame as Record<symbol, unknown>;
-      const cartValue = frameRecord[cart] as string | undefined;
+      const dateValue = frameRecord[date] as Date;
+      const menuValue = frameRecord[menu] as string;
 
-      if (typeof cartValue !== "string") {
+      if (!(dateValue instanceof Date) || typeof menuValue !== "string") {
         continue;
       }
 
-      // Get cart's date range
-      const cartDatesFrames = await (new Frames(frame).query(
-        WeeklyCart._getCartDates as unknown as (
-          input: { cart: string },
-        ) => Promise<
-          Array<{
-            startDate: Date;
-            endDate: Date;
-          }>
-        >,
-        { cart: cartValue },
-        { startDate, endDate },
+      // Check if cart exists for new date
+      const cartFrames = await (new Frames(frame).query(
+        WeeklyCart._getCartByDate as unknown as (
+          input: { date: Date },
+        ) => Promise<Array<{ cart: string }>>,
+        { date: dateValue },
+        { cart },
       ) as Promise<Frames>);
 
-      // Get menu's new date
-      const menuFrames = await (new Frames(frame).query(
-        MenuCollection._getMenuDetails as unknown as (
-          input: { menu: string },
-        ) => Promise<
-          Array<{
-            name: string;
-            date: Date;
-            owner: string;
-          }>
-        >,
-        { menu },
-        { newDate },
-      ) as Promise<Frames>);
-
-      // Check if menu's new date is within cart's week
-      for (const cartDatesFrame of cartDatesFrames) {
-        const cartDatesFrameRecord = cartDatesFrame as Record<symbol, unknown>;
-        const startDateValue = cartDatesFrameRecord[startDate];
-        const endDateValue = cartDatesFrameRecord[endDate];
-
-        if (
-          !(startDateValue instanceof Date) ||
-          !(endDateValue instanceof Date)
-        ) {
-          continue;
-        }
-
-        for (const menuFrame of menuFrames) {
-          const menuFrameRecord = menuFrame as Record<symbol, unknown>;
-          const dateValue = menuFrameRecord[newDate];
-
-          if (!(dateValue instanceof Date)) {
-            continue;
-          }
-
-          // Normalize dates for comparison
-          const normalizedMenuDate = new Date(dateValue);
-          normalizedMenuDate.setUTCHours(0, 0, 0, 0);
-
-          const normalizedStartDate = new Date(startDateValue);
-          normalizedStartDate.setUTCHours(0, 0, 0, 0);
-
-          const normalizedEndDate = new Date(endDateValue);
-          normalizedEndDate.setUTCHours(0, 0, 0, 0);
-
-          // If menuDate is within the cart's week, include this frame
-          if (
-            normalizedMenuDate >= normalizedStartDate &&
-            normalizedMenuDate <= normalizedEndDate
-          ) {
-            resultFrames.push({
-              ...cartDatesFrame,
-              ...menuFrame,
-              [date]: dateValue,
-            });
-          }
-        }
+      // Only proceed if cart exists (or will exist after EnsureCartExistsOnMenuDateChange)
+      if (cartFrames.length > 0) {
+        resultFrames.push({
+          ...frame,
+          [date]: dateValue,
+        });
       }
     }
     return resultFrames;
   },
   then: actions([
-    WeeklyCart.addMenuToCart,
+    WeeklyCart.moveMenuToCart,
     { menu, menuDate: date },
   ]),
 });
