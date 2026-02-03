@@ -3000,3 +3000,196 @@ Deno.test("PurchaseSystemConcept - Fractional Quantities Round Up Correctly", as
 
   await client.close();
 });
+
+Deno.test(
+  "PurchaseSystemConcept - Prorated Costs Across Menus in Shared Cart",
+  async (t) => {
+    printTestHeader(t.name);
+    const [db, client] = await testDb();
+    const purchaseSystem = new PurchaseSystemConcept(db);
+
+    let checkIndex = 0;
+    let cartCompId: ID;
+    let menuACompId: ID;
+    let menuBCompId: ID;
+    let milkSelectId: ID;
+    let gallonAtomicId: ID;
+
+    await t.step("1. Setup cart and two menus sharing milk", async () => {
+      const stepMessage = "1. Setup cart and two menus sharing milk";
+      printStepHeader(stepMessage);
+
+      // Create cart (root), and two menu composite orders
+      cartCompId = (await purchaseSystem.createCompositeOrder({
+        associateID: "cart:SharedMilkCart" as ID,
+      }) as { compositeOrder: ID }).compositeOrder;
+
+      menuACompId = (await purchaseSystem.createCompositeOrder({
+        associateID: "menu:A" as ID,
+      }) as { compositeOrder: ID }).compositeOrder;
+
+      menuBCompId = (await purchaseSystem.createCompositeOrder({
+        associateID: "menu:B" as ID,
+      }) as { compositeOrder: ID }).compositeOrder;
+
+      // Create SelectOrder for milk and one AtomicOrder representing a gallon
+      milkSelectId = (await purchaseSystem.createSelectOrder({
+        associateID: "ing:Milk" as ID,
+      }) as { selectOrder: ID }).selectOrder;
+
+      // One gallon = 16 cups, price = 23 (so 2 gallons cost 46)
+      gallonAtomicId = (await purchaseSystem.createAtomicOrder({
+        selectOrder: milkSelectId,
+        associateID: "opt:Milk1Gallon" as ID,
+        quantity: 16,
+        units: "cup",
+        price: 23.0,
+      }) as { atomicOrder: ID }).atomicOrder;
+
+      // Menu A needs 3 cups of milk.
+      // Base quantity is 16 cups (from gallon atomic), so scale factor = 3 / 16.
+      await purchaseSystem.addSelectOrderToCompositeOrder({
+        compositeOrder: menuACompId,
+        selectOrder: milkSelectId,
+        scaleFactor: 3.0 / 16.0,
+      });
+
+      // Menu B needs 20 cups of milk.
+      // Scale factor = 20 / 16.
+      await purchaseSystem.addSelectOrderToCompositeOrder({
+        compositeOrder: menuBCompId,
+        selectOrder: milkSelectId,
+        scaleFactor: 20.0 / 16.0,
+      });
+
+      // Cart contains both menus with scale factor 1.0
+      await purchaseSystem.addCompositeSubOrder({
+        parentOrder: cartCompId,
+        childOrder: menuACompId,
+        scaleFactor: 1.0,
+      });
+      await purchaseSystem.addCompositeSubOrder({
+        parentOrder: cartCompId,
+        childOrder: menuBCompId,
+        scaleFactor: 1.0,
+      });
+    });
+
+    await t.step(
+      "2. Calculate optimal purchase and verify prorated menu costs",
+      async () => {
+        const stepMessage =
+          "2. Calculate optimal purchase and verify prorated menu costs";
+        printStepHeader(stepMessage);
+
+        const calculateResult = await purchaseSystem.calculateOptimalPurchase({
+          compositeOrders: [cartCompId],
+        });
+        assertAndLog(
+          "error" in calculateResult,
+          false,
+          "Calculate optimal purchase for cart should succeed",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        // Total usage = 3 + 20 = 23 cups.
+        // Each gallon is 16 cups. Need 2 gallons (ceil(23/16)), total cost = 2 * 23 = 46.
+        const cartCostResult = await purchaseSystem._getOrderCost({
+          compositeOrder: cartCompId,
+        });
+        assertAndLog(
+          "error" in cartCostResult,
+          false,
+          "Query cart cost should not return an error",
+          stepMessage,
+          ++checkIndex,
+        );
+        const cartCost =
+          (cartCostResult as { totalCost: number }[])[0]?.totalCost ?? 0;
+        assertFloatEquals(
+          cartCost,
+          46.0,
+          "Cart total cost should be 46.0 (2 gallons × 23)",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        // With proration, each menu pays a share of the 46 based on its usage:
+        // Menu A uses 3 cups -> cost_A = 46 * (3 / 23) = 6.
+        // Menu B uses 20 cups -> cost_B = 46 * (20 / 23) = 40.
+        const menuACostResult = await purchaseSystem._getOrderCost({
+          compositeOrder: menuACompId,
+        });
+        assertAndLog(
+          "error" in menuACostResult,
+          false,
+          "Query menu A cost should not return an error",
+          stepMessage,
+          ++checkIndex,
+        );
+        const menuACost =
+          (menuACostResult as { totalCost: number }[])[0]?.totalCost ?? 0;
+        assertFloatEquals(
+          menuACost,
+          6.0,
+          "Menu A cost should be 6.0 (share 3/23 of total)",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        const menuBCostResult = await purchaseSystem._getOrderCost({
+          compositeOrder: menuBCompId,
+        });
+        assertAndLog(
+          "error" in menuBCostResult,
+          false,
+          "Query menu B cost should not return an error",
+          stepMessage,
+          ++checkIndex,
+        );
+        const menuBCost =
+          (menuBCostResult as { totalCost: number }[])[0]?.totalCost ?? 0;
+        assertFloatEquals(
+          menuBCost,
+          40.0,
+          "Menu B cost should be 40.0 (share 20/23 of total)",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        // Sanity: combined menu costs should equal cart cost (up to floating point rounding).
+        assertFloatEquals(
+          menuACost + menuBCost,
+          cartCost,
+          "Combined menu costs should equal cart cost",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        // Sanity: verify cart optimal purchase is 2 gallons.
+        const cartOptimalResult = await purchaseSystem._getOptimalPurchase({
+          compositeOrder: cartCompId,
+        });
+        const cartOptimal =
+          (cartOptimalResult as { optimalPurchase: Record<ID, number> }[])[0]
+            ?.optimalPurchase;
+        assertExistsAndLog(
+          cartOptimal,
+          "Cart optimal purchase should be defined",
+          stepMessage,
+          ++checkIndex,
+        );
+        assertAndLog(
+          cartOptimal[gallonAtomicId],
+          2,
+          "Cart optimal gallon quantity should be 2",
+          stepMessage,
+          ++checkIndex,
+        );
+      },
+    );
+
+    await client.close();
+  },
+);

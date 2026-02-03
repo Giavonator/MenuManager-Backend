@@ -1351,6 +1351,7 @@ export default class PurchaseSystemConcept {
         }
 
         const rootOrderID = initialCompositeOrder.rootOrder;
+
         if (processedRootNodes.has(rootOrderID)) {
           continue; // Already processed this root tree in this call
         }
@@ -1642,6 +1643,85 @@ export default class PurchaseSystemConcept {
                   compositeOrderProcessQueue.push(parentID);
                 }
               }
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Pass 3: Prorate root atomic costs back down to every composite order
+        // -------------------------------------------------------------------
+        const rootResults = calculatedIntermediateResults.get(rootOrderID);
+        const rootComposite = compositeOrdersInTree.get(rootOrderID);
+
+        if (rootResults && rootComposite) {
+          const rootQuantitiesNeeded = rootResults.quantitiesNeeded || {};
+
+          // Build map of total atomic costs at the root based on optimalPurchase
+          const totalAtomicCost = new Map<
+            AtomicOrder,
+            { cost: number; quantityNeeded: number }
+          >();
+
+          // Preload atomic order docs needed for cost lookups
+          const atomicIds = Object.keys(
+            rootComposite.optimalPurchase || {},
+          ) as AtomicOrder[];
+          if (atomicIds.length > 0) {
+            const atomicDocs = await this.atomicOrders.find({
+              _id: { $in: atomicIds },
+            }).toArray();
+            const atomicDocById = new Map<AtomicOrder, AtomicOrderDoc>();
+            for (const doc of atomicDocs) {
+              atomicDocById.set(doc._id, doc);
+            }
+
+            for (const atomicId of atomicIds) {
+              const packagesToBuy = rootComposite.optimalPurchase[atomicId] ||
+                0;
+              if (packagesToBuy <= 0) continue;
+
+              const atomicDoc = atomicDocById.get(atomicId);
+              if (!atomicDoc) continue;
+
+              const rootQtyNeeded = rootQuantitiesNeeded[atomicId] || 0;
+              if (rootQtyNeeded <= 0) continue;
+
+              const costForAtomic = packagesToBuy * atomicDoc.price;
+              totalAtomicCost.set(atomicId, {
+                cost: costForAtomic,
+                quantityNeeded: rootQtyNeeded,
+              });
+            }
+          }
+
+          // If we have any atomic costs, prorate them to each composite order
+          if (totalAtomicCost.size > 0) {
+            for (const [compId, compResults] of calculatedIntermediateResults) {
+              if (!compositeOrdersInTree.has(compId)) continue;
+
+              const compQuantities = compResults.quantitiesNeeded ||
+                ({} as Record<AtomicOrder, number>);
+              let proratedCost = 0;
+
+              for (
+                const [atomicId, { cost, quantityNeeded }] of totalAtomicCost
+              ) {
+                const compQty = compQuantities[atomicId] || 0;
+                if (compQty <= 0 || quantityNeeded <= 0) continue;
+
+                const share = compQty / quantityNeeded;
+                proratedCost += cost * share;
+              }
+
+              // Update in-memory results so any callers relying on intermediate
+              // values see the prorated cost.
+              compResults.cost = proratedCost;
+
+              // Persist prorated cost back to the composite order document.
+              await this.compositeOrders.updateOne(
+                { _id: compId },
+                { $set: { totalCost: proratedCost } },
+              );
             }
           }
         }
