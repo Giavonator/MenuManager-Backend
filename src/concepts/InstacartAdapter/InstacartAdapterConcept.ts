@@ -6,6 +6,7 @@ import "jsr:@std/dotenv/load";
 const INSTACART_API_KEY = Deno.env.get("INSTACART_API_KEY");
 const INSTACART_BASE_URL = Deno.env.get("INSTACART_BASE_URL") ??
   "https://connect.dev.instacart.tools";
+const IMPACT_ID = Deno.env.get("IMPACT_ID");
 
 // --- LineItem Type ---
 export interface LineItem {
@@ -50,6 +51,67 @@ interface InstacartRequest {
 
 interface InstacartResponse {
   products_link_url: string;
+}
+
+/**
+ * Appends Impact UTM parameters to an Instacart URL for attribution tracking.
+ * If the URL already contains these parameters, they are not duplicated.
+ *
+ * @param url The original Instacart URL
+ * @param impactId The Impact partner ID
+ * @returns The URL with UTM parameters appended
+ */
+function appendImpactUtmParameters(url: string, impactId: string): string {
+  try {
+    const urlObj = new URL(url);
+    const searchParams = urlObj.searchParams;
+
+    // Check if UTM parameters already exist
+    const hasUtmCampaign = searchParams.has("utm_campaign");
+    const hasUtmContent = searchParams.has("utm_content");
+    const expectedUtmContent = `campaignid-20313_partnerid-${impactId}`;
+
+    // If parameters already exist and match, return URL unchanged
+    if (
+      hasUtmCampaign &&
+      searchParams.get("utm_campaign") === "instacart-idp" &&
+      hasUtmContent &&
+      searchParams.get("utm_content") === expectedUtmContent
+    ) {
+      return url;
+    }
+
+    // Append UTM parameters
+    searchParams.set("utm_campaign", "instacart-idp");
+    searchParams.set("utm_medium", "affiliate");
+    searchParams.set("utm_source", "instacart_idp");
+    searchParams.set("utm_term", "partnertype-mediapartner");
+    searchParams.set("utm_content", expectedUtmContent);
+
+    return urlObj.toString();
+  } catch (e) {
+    // If URL parsing fails, fall back to string manipulation
+    // This handles edge cases where URL might be malformed
+    console.warn(
+      `Failed to parse URL for UTM parameter appending: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+
+    // Check if URL already has query parameters
+    const hasQuery = url.includes("?");
+    const separator = hasQuery ? "&" : "?";
+
+    // Check if UTM parameters might already exist (basic check)
+    if (url.includes("utm_campaign=instacart-idp")) {
+      return url;
+    }
+
+    const utmParams =
+      `utm_campaign=instacart-idp&utm_medium=affiliate&utm_source=instacart_idp&utm_term=partnertype-mediapartner&utm_content=campaignid-20313_partnerid-${impactId}`;
+
+    return `${url}${separator}${utmParams}`;
+  }
 }
 
 export default class InstacartAdapterConcept {
@@ -222,7 +284,18 @@ export default class InstacartAdapterConcept {
         };
       }
 
-      return { url: responseData.products_link_url };
+      // Append Impact UTM parameters if IMPACT_ID is configured
+      let finalUrl = responseData.products_link_url;
+      if (IMPACT_ID) {
+        finalUrl = appendImpactUtmParameters(finalUrl, IMPACT_ID);
+      } else {
+        // Log warning if IMPACT_ID is not set (optional feature)
+        console.warn(
+          "IMPACT_ID is not configured. Instacart URLs will not include Impact attribution parameters.",
+        );
+      }
+
+      return { url: finalUrl };
     } catch (e: unknown) {
       // Safely extract the error message
       const errorMessage = e instanceof Error ? e.message : String(e);

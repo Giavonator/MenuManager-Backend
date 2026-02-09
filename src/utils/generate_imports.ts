@@ -16,7 +16,7 @@ import { walk } from "jsr:@std/fs";
 
 // 1. Configuration
 const CONCEPTS_DIR = Deno.env.get("CONCEPTS_DIR") ?? "src/concepts";
-const SYNCS_DIR = Deno.env.get("SYNCS_DIR") ?? "src/syncs";
+const SYNCS_DIR = Deno.env.get("SYNCS_DIR") ?? "src/concepts";
 
 interface ConceptInfo {
   name: string; // PascalCase name, e.g., "User"

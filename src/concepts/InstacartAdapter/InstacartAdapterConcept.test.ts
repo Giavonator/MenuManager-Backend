@@ -49,7 +49,8 @@ function setupFetchMock() {
       // Return mock successful response
       return new Response(
         JSON.stringify({
-          url: "https://www.instacart.com/shopping_lists/abc123xyz",
+          products_link_url:
+            "https://www.instacart.com/shopping_lists/abc123xyz",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -444,7 +445,9 @@ Deno.test("InstacartAdapter - Data Transformation", async (t) => {
       capturedRequest = JSON.parse(init.body as string);
     }
     return new Response(
-      JSON.stringify({ url: "https://www.instacart.com/shopping_lists/test" }),
+      JSON.stringify({
+        products_link_url: "https://www.instacart.com/shopping_lists/test",
+      }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   };
@@ -610,6 +613,322 @@ Deno.test("InstacartAdapter - Data Transformation", async (t) => {
     );
   } finally {
     globalThis.fetch = originalFetch;
+    await client.close();
+  }
+});
+
+Deno.test("InstacartAdapter - Impact UTM Parameters", async (t) => {
+  printTestHeader(t.name);
+  const [db, client] = await testDb();
+  const adapter = new InstacartAdapterConcept(db);
+
+  // Setup fetch mock
+  setupFetchMock();
+
+  try {
+    const originalApiKey = Deno.env.get("INSTACART_API_KEY");
+    const originalImpactId = Deno.env.get("IMPACT_ID");
+    Deno.env.set("INSTACART_API_KEY", "test-api-key-123");
+
+    await t.step(
+      "1. URL with no existing query parameters - should append with ?",
+      async () => {
+        const stepMessage =
+          "1. URL with no existing query parameters - should append with ?";
+        printStepHeader(stepMessage);
+        let checkIndex = 0;
+
+        // Override fetch mock to return URL without query params
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (): Promise<Response> => {
+          return new Response(
+            JSON.stringify({
+              products_link_url:
+                "https://www.instacart.com/store/shopping_lists/4321606",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        };
+
+        Deno.env.set("IMPACT_ID", "5928554");
+
+        const result = await adapter.createShoppingList({
+          title: "Test List",
+          weekStart: "2025-01-26",
+          linkbackOrigin: "https://example.com",
+          lineItems: [{ name: "Milk", quantity: 1, unit: "cup" }],
+        });
+
+        assertAndLog(
+          "url" in result,
+          true,
+          "Should return URL successfully",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        if ("url" in result) {
+          assertAndLog(
+            result.url.includes("utm_campaign=instacart-idp"),
+            true,
+            "URL should contain utm_campaign parameter",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes("utm_medium=affiliate"),
+            true,
+            "URL should contain utm_medium parameter",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes("utm_source=instacart_idp"),
+            true,
+            "URL should contain utm_source parameter",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes("utm_term=partnertype-mediapartner"),
+            true,
+            "URL should contain utm_term parameter",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes(
+              "utm_content=campaignid-20313_partnerid-5928554",
+            ),
+            true,
+            "URL should contain utm_content with correct partner ID",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes("?"),
+            true,
+            "URL should use ? to start query parameters",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            !result.url.includes("??"),
+            true,
+            "URL should not have duplicate ?",
+            stepMessage,
+            ++checkIndex,
+          );
+        }
+
+        globalThis.fetch = originalFetch;
+      },
+    );
+
+    await t.step(
+      "2. URL with existing query parameters - should append with &",
+      async () => {
+        const stepMessage =
+          "2. URL with existing query parameters - should append with &";
+        printStepHeader(stepMessage);
+        let checkIndex = 0;
+
+        // Override fetch mock to return URL with existing query params
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (): Promise<Response> => {
+          return new Response(
+            JSON.stringify({
+              products_link_url:
+                "https://www.instacart.com/store/shopping_lists/4321606?existing=param",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        };
+
+        Deno.env.set("IMPACT_ID", "5928554");
+
+        const result = await adapter.createShoppingList({
+          title: "Test List",
+          weekStart: "2025-01-26",
+          linkbackOrigin: "https://example.com",
+          lineItems: [{ name: "Milk", quantity: 1, unit: "cup" }],
+        });
+
+        assertAndLog(
+          "url" in result,
+          true,
+          "Should return URL successfully",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        if ("url" in result) {
+          assertAndLog(
+            result.url.includes("existing=param"),
+            true,
+            "URL should preserve existing query parameters",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url.includes("utm_campaign=instacart-idp"),
+            true,
+            "URL should contain UTM parameters",
+            stepMessage,
+            ++checkIndex,
+          );
+          // Check that UTM params are appended with &
+          const utmIndex = result.url.indexOf("utm_campaign");
+          const existingIndex = result.url.indexOf("existing");
+          assertAndLog(
+            utmIndex > existingIndex,
+            true,
+            "UTM parameters should come after existing parameters",
+            stepMessage,
+            ++checkIndex,
+          );
+        }
+
+        globalThis.fetch = originalFetch;
+      },
+    );
+
+    await t.step(
+      "3. Missing IMPACT_ID - should return URL unchanged",
+      async () => {
+        const stepMessage =
+          "3. Missing IMPACT_ID - should return URL unchanged";
+        printStepHeader(stepMessage);
+        let checkIndex = 0;
+
+        // Override fetch mock
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (): Promise<Response> => {
+          return new Response(
+            JSON.stringify({
+              products_link_url:
+                "https://www.instacart.com/store/shopping_lists/4321606",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        };
+
+        // Ensure IMPACT_ID is not set
+        Deno.env.delete("IMPACT_ID");
+
+        const result = await adapter.createShoppingList({
+          title: "Test List",
+          weekStart: "2025-01-26",
+          linkbackOrigin: "https://example.com",
+          lineItems: [{ name: "Milk", quantity: 1, unit: "cup" }],
+        });
+
+        assertAndLog(
+          "url" in result,
+          true,
+          "Should return URL successfully",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        if ("url" in result) {
+          assertAndLog(
+            !result.url.includes("utm_campaign"),
+            true,
+            "URL should not contain UTM parameters when IMPACT_ID is missing",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url ===
+              "https://www.instacart.com/store/shopping_lists/4321606",
+            true,
+            "URL should be unchanged from Instacart response",
+            stepMessage,
+            ++checkIndex,
+          );
+        }
+
+        globalThis.fetch = originalFetch;
+      },
+    );
+
+    await t.step(
+      "4. URL that already contains UTM parameters - should not duplicate",
+      async () => {
+        const stepMessage =
+          "4. URL that already contains UTM parameters - should not duplicate";
+        printStepHeader(stepMessage);
+        let checkIndex = 0;
+
+        // Override fetch mock to return URL with UTM params already present
+        const originalFetch = globalThis.fetch;
+        const urlWithUtm =
+          "https://www.instacart.com/store/shopping_lists/4321606?utm_campaign=instacart-idp&utm_medium=affiliate&utm_source=instacart_idp&utm_term=partnertype-mediapartner&utm_content=campaignid-20313_partnerid-5928554";
+        globalThis.fetch = async (): Promise<Response> => {
+          return new Response(
+            JSON.stringify({
+              products_link_url: urlWithUtm,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        };
+
+        Deno.env.set("IMPACT_ID", "5928554");
+
+        const result = await adapter.createShoppingList({
+          title: "Test List",
+          weekStart: "2025-01-26",
+          linkbackOrigin: "https://example.com",
+          lineItems: [{ name: "Milk", quantity: 1, unit: "cup" }],
+        });
+
+        assertAndLog(
+          "url" in result,
+          true,
+          "Should return URL successfully",
+          stepMessage,
+          ++checkIndex,
+        );
+
+        if ("url" in result) {
+          // Count occurrences of utm_campaign to ensure no duplication
+          const utmCampaignMatches = result.url.match(
+            /utm_campaign=instacart-idp/g,
+          );
+          assertAndLog(
+            utmCampaignMatches?.length,
+            1,
+            "URL should contain utm_campaign exactly once",
+            stepMessage,
+            ++checkIndex,
+          );
+          assertAndLog(
+            result.url === urlWithUtm,
+            true,
+            "URL should be unchanged when UTM parameters already exist",
+            stepMessage,
+            ++checkIndex,
+          );
+        }
+
+        globalThis.fetch = originalFetch;
+      },
+    );
+
+    // Restore environment variables
+    if (originalApiKey) {
+      Deno.env.set("INSTACART_API_KEY", originalApiKey);
+    } else {
+      Deno.env.delete("INSTACART_API_KEY");
+    }
+    if (originalImpactId) {
+      Deno.env.set("IMPACT_ID", originalImpactId);
+    } else {
+      Deno.env.delete("IMPACT_ID");
+    }
+  } finally {
+    teardownFetchMock();
     await client.close();
   }
 });

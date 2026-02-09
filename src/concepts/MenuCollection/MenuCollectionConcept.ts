@@ -207,7 +207,9 @@ export default class MenuCollectionConcept {
 
         if (conflictMenu) {
           return {
-            error: `Another menu already exists on ${toDateOnlyString(parsedDate)}.`,
+            error: `Another menu already exists on ${
+              toDateOnlyString(parsedDate)
+            }.`,
           };
         }
         updateFields.date = newMenuDate;
