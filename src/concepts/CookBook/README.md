@@ -22,13 +22,13 @@
 Unit categories and supported units
 -----------------------------------
 
-CookBook uses the same three unit categories as PurchaseSystem:
+CookBook uses the same three unit categories as Instacart:
 
 - Volume units: tsp, tbsp, cup, fl oz, pt, qt, gal, ml, l
 - Weight units: oz, lb, g, kg
 - Count units: each, dozen, package, bag, box, can, bottle
 
-Each ingredient is associated (via its purchase options in StoreCatalog/PurchaseSystem) with exactly one category. When adding or updating a recipe ingredient, `units` must be one of the supported units in that ingredient’s category. Conversions between units are always allowed within a category and never across categories; cost calculations will convert recipe quantities to the base units used by the relevant purchase options.
+Each ingredient is associated (via its purchase options in StoreCatalog/Instacart) with exactly one category. When adding or updating a recipe ingredient, `units` must be one of the supported units in that ingredient’s category. Conversions between units are always allowed within a category and never across categories; cost calculations will convert recipe quantities to the base units used by the relevant purchase options.
 
 **actions**\
   createRecipe (name: String, user: User): (recipe: Recipe)\

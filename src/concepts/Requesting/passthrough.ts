@@ -53,18 +53,6 @@ export const inclusions: Record<string, string> = {
   "/api/MenuCollection/_getMenusOwnedByUser":
     "everyone can view other people's menus",
   "/api/MenuCollection/_getMenuByDate": "everyone has access to view all menus",
-  "/api/WeeklyCart/_getCartDates": "everyone has access to cart dates",
-  "/api/WeeklyCart/_getMenusInCart":
-    "everyone has access to view menus in carts",
-  "/api/WeeklyCart/_getCartByDate": "everyone has access to view carts",
-  "/api/WeeklyCart/_getCartWithMenu":
-    "everyone has access to find cart by menu",
-  "/api/PurchaseSystem/_getOrderByAssociateID": "everyone can view orders",
-  "/api/PurchaseSystem/_getOptimalPurchase":
-    "everyone can view optimal order purchase",
-  "/api/PurchaseSystem/_getOrderCost": "everyone can view order costs",
-  "/api/PurchaseSystem/_getSelectOrderDetails":
-    "everyone can view select order details",
 };
 
 /**
@@ -99,29 +87,5 @@ export const exclusions: Array<string> = [
   "/api/MenuCollection/addRecipe",
   "/api/MenuCollection/removeRecipe",
   "/api/MenuCollection/changeRecipeScaling",
-  "/api/WeeklyCart/createCart",
-  "/api/WeeklyCart/deleteCart",
-  "/api/WeeklyCart/addMenuToCart",
-  "/api/WeeklyCart/removeMenuFromCart",
-  "/api/PurchaseSystem/createSelectOrder",
-  "/api/PurchaseSystem/deleteSelectOrder",
-  "/api/PurchaseSystem/createAtomicOrder",
-  "/api/PurchaseSystem/deleteAtomicOrder",
-  "/api/PurchaseSystem/updateAtomicOrder",
-  "/api/PurchaseSystem/createCompositeOrder",
-  "/api/PurchaseSystem/addSelectOrderToCompositeOrder",
-  "/api/PurchaseSystem/removeSelectOrderFromCompositeOrder",
-  "/api/PurchaseSystem/addCompositeSubOrder",
-  "/api/PurchaseSystem/removeCompositeSubOrder",
-  "/api/PurchaseSystem/updateSubOrderScaleFactor",
-  "/api/PurchaseSystem/deleteCompositeOrder",
-  "/api/PurchaseSystem/calculateOptimalPurchase",
-  "/api/PurchaseSystem/purchaseOrder",
-  "/api/PurchaseSystem/getErrorMessage",
-  "/api/PurchaseSystem/findAnyOrderByAssociateID",
-  "/api/PurchaseSystem/findAnyOrderById",
-  "/api/PurchaseSystem/wouldFormCycle",
-  "/api/PurchaseSystem/updateRootOrderRecursive",
-  "/api/PurchaseSystem/dfsCollectTreeInfoAndReset",
   "/api/InstacartAdapter/createShoppingList",
 ];
